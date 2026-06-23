@@ -17,6 +17,8 @@ jobs:
     name: Validate tag and ancestry
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1 — renovate updates these
         with:
@@ -33,18 +35,25 @@ jobs:
           fi
 
       - name: Ensure tag is on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # checkout already ran with fetch-depth: 0, so we have full history.
-          MAIN_SHA=$(git ls-remote origin refs/heads/main | awk '{print $1}')
+          # Use the GitHub API to confirm the tag commit appears in main's history.
+          # Avoids git auth issues when persist-credentials is false.
+          MAIN_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.commit.sha')
           if [[ -z "$MAIN_SHA" ]]; then
-            echo "::error::Could not resolve origin/main"
-            exit 1
+            echo "::error::Could not resolve origin/main"; exit 1
           fi
-          if ! git merge-base --is-ancestor "${GITHUB_SHA}" "$MAIN_SHA"; then
-            echo "::error::Tag commit ${GITHUB_SHA} is not an ancestor of origin/main (${MAIN_SHA})"
-            exit 1
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" "$MAIN_SHA" 2>/dev/null; then
+            # Fallback: ask the API whether main contains the tag commit
+            STATUS=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${MAIN_SHA}...${GITHUB_SHA}" --jq '.status' 2>/dev/null || echo "")
+            if [[ "$STATUS" != "behind" && "$STATUS" != "identical" ]]; then
+              echo "::error::Tag commit ${GITHUB_SHA} is not on main (compare status: ${STATUS})"
+              exit 1
+            fi
           fi
+          echo "OK: tag commit is on main (head=${MAIN_SHA})"
 
       - name: Ensure CHANGELOG entry exists
         run: |
