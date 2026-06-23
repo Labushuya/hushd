@@ -50,7 +50,7 @@ jobs:
 
       - name: Upload lint reports
         if: always()
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3 — renovate updates these
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.3.3 — renovate updates these
         with:
           name: lint-reports
           path: |
@@ -85,7 +85,7 @@ jobs:
 
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3 — renovate updates these
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.3.3 — renovate updates these
         with:
           name: unit-test-report
           path: |
@@ -127,7 +127,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --stacktrace
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3 — renovate updates these
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.3.3 — renovate updates these
         with:
           name: debug-apk
           path: app/build/outputs/apk/debug/*.apk
@@ -183,7 +183,7 @@ jobs:
 
       - name: Upload MobSF report
         if: always()
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3 — renovate updates these
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.3.3 — renovate updates these
         with:
           name: mobsf-report
           path: artifacts/mobsf-report.*
