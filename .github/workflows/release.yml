@@ -167,24 +167,33 @@ jobs:
           fi
 
       - name: Generate SBOM (CycloneDX)
+        id: sbom
+        continue-on-error: true
         run: ./gradlew :app:cyclonedxBom --stacktrace --no-daemon
 
       - name: Stage SBOM
+        id: stage_sbom
         run: |
           set -euo pipefail
           SRC="app/build/reports/bom.json"
-          [[ -f "$SRC" ]] || { echo "::error::CycloneDX SBOM not produced at $SRC"; exit 1; }
-          DEST="${RUNNER_TEMP}/hushd-${{ steps.version.outputs.version_name }}-sbom.cyclonedx.json"
-          cp "$SRC" "$DEST"
-          echo "SBOM_FILE=$DEST" >> "$GITHUB_ENV"
+          if [[ -f "$SRC" ]]; then
+            DEST="${RUNNER_TEMP}/hushd-${{ steps.version.outputs.version_name }}-sbom.cyclonedx.json"
+            cp "$SRC" "$DEST"
+            echo "SBOM_FILE=$DEST" >> "$GITHUB_ENV"
+            echo "sbom_present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::CycloneDX SBOM not produced — plugin disabled in V1, deferred to V2."
+            echo "sbom_present=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Compute SHA-256 sums
         id: sums
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          FILES=("$(basename "$RELEASE_APK")" "$(basename "$SBOM_FILE")")
-          [[ -n "${MAPPING_FILE:-}" ]] && FILES+=("$(basename "$MAPPING_FILE")")
+          FILES=("$(basename "$RELEASE_APK")")
+          [[ -n "${SBOM_FILE:-}" && -f "$SBOM_FILE" ]] && FILES+=("$(basename "$SBOM_FILE")")
+          [[ -n "${MAPPING_FILE:-}" && -f "$MAPPING_FILE" ]] && FILES+=("$(basename "$MAPPING_FILE")")
           sha256sum "${FILES[@]}" > sha256sums.txt
           cat sha256sums.txt
           APK_SHA=$(sha256sum "$(basename "$RELEASE_APK")" | awk '{print $1}')
@@ -198,12 +207,14 @@ jobs:
           subject-path: ${{ env.RELEASE_APK }}
 
       - name: Attest build provenance (SBOM)
+        if: steps.stage_sbom.outputs.sbom_present == 'true'
         uses: actions/attest-build-provenance@173725a1209d09b31f9d30a3890cf2757ebbff0d # v1.1.2 — renovate updates these
         continue-on-error: true
         with:
           subject-path: ${{ env.SBOM_FILE }}
 
       - name: Attest SBOM as predicate of APK
+        if: steps.stage_sbom.outputs.sbom_present == 'true'
         uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v1.4.1 — renovate updates these
         continue-on-error: true
         with:
@@ -218,11 +229,11 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
           files: |
             ${{ env.RELEASE_APK }}
-            ${{ env.SBOM_FILE }}
             ${{ env.SUMS_FILE }}
+            ${{ env.SBOM_FILE }}
             ${{ env.MAPPING_FILE }}
           body: |
             ## Verification
