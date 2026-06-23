@@ -35,9 +35,14 @@ jobs:
       - name: Ensure tag is on main
         run: |
           set -euo pipefail
-          git fetch origin main --depth=0
-          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
-            echo "::error::Tag commit ${GITHUB_SHA} is not an ancestor of origin/main"
+          # checkout already ran with fetch-depth: 0, so we have full history.
+          MAIN_SHA=$(git ls-remote origin refs/heads/main | awk '{print $1}')
+          if [[ -z "$MAIN_SHA" ]]; then
+            echo "::error::Could not resolve origin/main"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" "$MAIN_SHA"; then
+            echo "::error::Tag commit ${GITHUB_SHA} is not an ancestor of origin/main (${MAIN_SHA})"
             exit 1
           fi
 
