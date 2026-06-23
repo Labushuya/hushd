@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Foreground-service notification displayed while a bulk autostop run is in progress. -->
+    <string name="notification_channel_name_automation">Hushd Automation</string>
+    <string name="notification_channel_description_automation">Progress overlay while autostart is being disabled</string>
+    <string name="notification_title_running">Hushd is running</string>
+    <string name="notification_text_running">Disabling autostart for selected apps</string>
+    <string name="notification_action_cancel">Cancel</string>
+</resources>

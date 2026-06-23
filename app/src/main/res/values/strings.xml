@@ -1,7 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Hushd</string>
+    <string name="app_description">Autostart killer for HONOR MagicOS (private build)</string>
+
+    <!-- AccessibilityService labels (referenced by app manifest + accessibility_service_config.xml) -->
+    <string name="a11y_service_label">Hushd Autostop</string>
+    <string name="a11y_service_summary">Disables app autostart on HONOR MagicOS</string>
+    <string name="a11y_service_description">Hushd uses the AccessibilityService API to toggle autostart switches inside the HONOR Phone Manager UI on your behalf. It never accesses the network and never sees events from other apps — it is scoped to the system settings packages only.</string>
+
+    <!-- Disclaimer -->
     <string name="disclaimer_title">Before you continue</string>
     <string name="disclaimer_body">Hushd controls another app\'s UI through Android\'s AccessibilityService. It is built for HONOR MagicOS 7/8 on the HONOR Magic V2. It clicks buttons in the HONOR Phone Manager just like you would. It does not access network, does not collect data, and never sends anything off-device. UI automation may break on future MagicOS updates without warning. You run this on your own device, at your own risk.</string>
     <string name="disclaimer_accept_label">I understand and accept the risks</string>
+
+    <!-- Notifications: BootCompletedReceiver (service disabled warning) -->
+    <string name="notification_channel_name_service_status">Service status</string>
+    <string name="notification_title_service_disabled">Hushd</string>
+    <string name="notification_text_service_disabled">Accessibility service is disabled. Please re-enable it.</string>
 </resources>

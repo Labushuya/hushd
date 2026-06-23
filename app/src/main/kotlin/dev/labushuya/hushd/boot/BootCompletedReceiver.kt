@@ -40,8 +40,12 @@ class BootCompletedReceiver : BroadcastReceiver() {
             nm.getNotificationChannel(CHANNEL_ID) == null
         ) {
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Service-Status", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                    description = "Hinweis, wenn der Accessibility-Service deaktiviert ist"
+                NotificationChannel(
+                    CHANNEL_ID,
+                    ctx.getString(R.string.notification_channel_name_service_status),
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply {
+                    description = ctx.getString(R.string.notification_text_service_disabled)
                 }
             )
         }
@@ -53,8 +57,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
         )
         val notif = NotificationCompat.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_warn)
-            .setContentTitle("Autostart Manager")
-            .setContentText("Accessibility-Service ist deaktiviert. Bitte erneut aktivieren.")
+            .setContentTitle(ctx.getString(R.string.notification_title_service_disabled))
+            .setContentText(ctx.getString(R.string.notification_text_service_disabled))
             .setContentIntent(pi)
             .setAutoCancel(true)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)

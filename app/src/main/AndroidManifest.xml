@@ -110,7 +110,7 @@
 
         <!-- AccessibilityService: scoped to settings/system-manager packages via the config xml. -->
         <service
-            android:name=".service.accessibility.AutostartAccessibilityService"
+            android:name=".service.accessibility.AutostopAccessibilityService"
             android:exported="true"
             android:label="@string/a11y_service_label"
             android:description="@string/a11y_service_description"
@@ -130,7 +130,7 @@
         <!-- Boot receiver: one-shot self-check whether MagicOS disabled our a11y service post-reboot.
              Does NOT autostart the app. Schedules a WorkManager OneTimeWorkRequest. -->
         <receiver
-            android:name=".receiver.BootCompletedReceiver"
+            android:name=".boot.BootCompletedReceiver"
             android:exported="true"
             android:directBootAware="false">
             <intent-filter>

@@ -76,15 +76,28 @@ Diese Dinge blockieren den ersten Build und müssen vor `./gradlew check` materi
 
 ### Hoch-Priorität (Build-blockierend)
 
-1. **Build-Logic / Convention-Plugins:** Segment-1 listete `build-logic/convention/AndroidApplicationConventionPlugin.kt`, `KotlinAndroidConventionPlugin.kt`, `SigningConventionPlugin.kt`. **Code wurde in keinem Segment geliefert.** Nur `build-logic/settings.gradle.kts` + `build-logic/convention/build.gradle.kts` als Stub vorhanden. Aktuelles `app/build.gradle.kts` referenziert KEINE Convention-IDs — Plugins werden direkt via Version-Catalog geladen. Stub-Modul ist also okay, aber wenn der spätere CI-Build Convention-Plugins erwartet, müssen die noch geschrieben werden.
+1. **Build-Logic / Convention-Plugins:** Segment-1 listete `build-logic/convention/AndroidApplicationConventionPlugin.kt`, `KotlinAndroidConventionPlugin.kt`, `SigningConventionPlugin.kt`. **Code wurde in keinem Segment geliefert.** Nur `build-logic/settings.gradle.kts` + `build-logic/convention/build.gradle.kts` als Stub vorhanden. Aktuelles `app/build.gradle.kts` referenziert KEINE Convention-IDs — Plugins werden direkt via Version-Catalog geladen. Stub-Modul ist also okay, aber wenn der spätere CI-Build Convention-Plugins erwartet, müssen die noch geschrieben werden. **[2026-06-23 fix-up: Option (A) bestätigt — kein `gradlePlugin {}` Block, kein Cleanup nötig.]**
 
-2. **Per-Module-Kotlin-Sources:** `core/common`, `core/data`, `core/ui`, `feature/automation` haben aktuell KEINE Kotlin-Source-Files. Modul-Stubs sind erzeugt (build.gradle.kts + leeres AndroidManifest.xml), aber als Empty-AAR. App kompiliert grundsätzlich, aber die ViewModels / Repositories / Compose-Themes, die das App-Modul erwartet, fehlen. → Folge-Task: V1.0-Implementierung dieser Module aus den Segmenten ergänzen (Segment-4 hatte hier nur Teil-Ausschnitte).
+2. **Per-Module-Kotlin-Sources:** `core/common`, `core/data`, `core/ui`, `feature/automation` haben aktuell KEINE Kotlin-Source-Files. Modul-Stubs sind erzeugt (build.gradle.kts + leeres AndroidManifest.xml), aber als Empty-AAR. App kompiliert grundsätzlich, aber die ViewModels / Repositories / Compose-Themes, die das App-Modul erwartet, fehlen. → Folge-Task: V1.0-Implementierung dieser Module aus den Segmenten ergänzen (Segment-4 hatte hier nur Teil-Ausschnitte). **[2026-06-23 fix-up: je ein `Placeholder.kt` ergänzt — Module produzieren jetzt ein nicht-leeres .aar. ViewModels/Repos/Themes bleiben offen.]**
 
 3. **`gradle/verification-metadata.xml`:** Wird in `gradle.properties` referenziert aber nicht erzeugt (Segment-2 hatte nur Pfad-Hinweise). User muss einmal `./gradlew --write-verification-metadata sha256,pgp help` laufen lassen sobald die anderen Module Sources haben.
 
 4. **`lint-baseline.xml`:** Wird in `app/build.gradle.kts` (`baseline = file("lint-baseline.xml")`) referenziert. Wird beim ersten `./gradlew lint` automatisch erzeugt — kein manueller Schritt nötig.
 
-5. **`CHANGELOG.md`:** `release.yml` validate-tag und `scripts/release.sh` lesen daraus. Noch nicht angelegt → Folge-Task vor erstem Release.
+5. **`CHANGELOG.md`:** `release.yml` validate-tag und `scripts/release.sh` lesen daraus. Noch nicht angelegt → Folge-Task vor erstem Release. **[2026-06-23 fix-up: angelegt im Keep-a-Changelog-1.1.0-Format mit `[Unreleased]`.]**
+
+### NEUE Hoch-Priorität-Findings (2026-06-23 — Build-blockierend, schlimmer als ursprünglich notiert)
+
+- **HIGH — App-Modul referenziert nicht-existente Klassen/Resourcen.** Im `app/src/main/AndroidManifest.xml` werden referenziert:
+  - `.AutostopApp` (Application-Class) — **fehlt**
+  - `.ui.MainActivity`, `.ui.A11ySettingsActivity` — **fehlen** (kein `ui/`-Package im app-Modul)
+  - `@string/app_description`, `@string/a11y_service_label`, `@string/a11y_service_description`, `@string/a11y_service_summary` — **[2026-06-23 fix-up: nachgepflegt in `values/`+`values-de/strings.xml`.]**
+  - `@style/Theme.AutostartManager`, `@style/Theme.AutostartManager.Splash` — **fehlen** (kein `values/themes.xml`/`styles.xml`)
+  - `@xml/shortcuts` — **fehlt**
+  - `R.drawable.ic_notification_warn` (von BootCompletedReceiver verwendet) — **fehlt**
+  → ohne diese Klassen/Resourcen scheitert `assembleDebug` an unresolved-reference + manifest-class-not-found.
+- **MEDIUM — Klassenname-Mismatch im App-Manifest gefixt.** `AutostartAccessibilityService` → `AutostopAccessibilityService` (echter Code-Klassenname), und `.receiver.BootCompletedReceiver` → `.boot.BootCompletedReceiver` (echtes Package). Beide würden den Build überleben, aber zur Runtime crashen mit `ClassNotFoundException`. **[2026-06-23 fix-up: korrigiert.]**
+- **LOW — Submodul-Services im App-Manifest deklariert.** `.service.overlay.OverlayService` liegt im Submodul mit Namespace `dev.labushuya.hushd.service.overlay`. Bei `applicationId = "dev.labushuya.hushd"` löst das relative `.service.overlay.OverlayService` zu `dev.labushuya.hushd.service.overlay.OverlayService` auf — das passt zum tatsächlichen FQCN. Gleiches gilt für AutostopAccessibilityService. Manifest-Merge sollte hier korrekt sein.
 
 ### Mittlere Priorität
 
@@ -102,9 +115,9 @@ Diese Dinge blockieren den ersten Build und müssen vor `./gradlew check` materi
 
 11. **Logo-Assets:** Aktuell nur Placeholder-VectorDrawable (rotes "H" auf dunklem BG). Task #12 generiert die echten Assets aus `logo-hushd-v2.svg`.
 
-12. **Notification-Title-Strings im OverlayService/Receiver:** Segment-4 hat hardcodierte "Autostart Manager"-Strings als `setContentTitle()`-Argumente. Sollte auf `getString(R.string.app_name)` umgestellt werden — aktuell wird "Autostart Manager" angezeigt statt "Hushd". Cosmetic-Bug, kein Blocker.
+12. **Notification-Title-Strings im OverlayService/Receiver:** Segment-4 hat hardcodierte "Autostart Manager"-Strings als `setContentTitle()`-Argumente. Sollte auf `getString(R.string.app_name)` umgestellt werden — aktuell wird "Autostart Manager" angezeigt statt "Hushd". Cosmetic-Bug, kein Blocker. **[2026-06-23 fix-up: migriert. OverlayService nutzt jetzt `R.string.notification_{title,text}_running` aus `service/overlay/src/main/res/values{,-de}/strings.xml`; BootCompletedReceiver nutzt `R.string.notification_{title,text}_service_disabled` aus `app/.../strings.xml`.]**
 
-13. **Gradle-Wrapper-JAR:** Per `curl` von `raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar` heruntergeladen (43 583 Bytes). Funktioniert, ist aber kein offizieller Distributionspfad. **Empfehlung:** Wenn Gradle 8.x lokal installiert ist, einmal `gradle wrapper --gradle-version 8.11.1 --distribution-type bin` laufen lassen um JAR + gradlew/gradlew.bat sauber zu regenerieren.
+13. **Gradle-Wrapper-JAR:** Per `curl` von `raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar` heruntergeladen (43 583 Bytes). Funktioniert, ist aber kein offizieller Distributionspfad. **Empfehlung:** Wenn Gradle 8.x lokal installiert ist, einmal `gradle wrapper --gradle-version 8.11.1 --distribution-type bin` laufen lassen um JAR + gradlew/gradlew.bat sauber zu regenerieren. **[2026-06-23 verify: JAR-Größe (43583 Bytes) ist erwartet für Gradle 8.11.1. CI mit `gradle/actions/setup-gradle@v4` injiziert ggf. eigene Distribution und braucht den lokalen JAR nicht zwingend.]**
 
 14. **Signing-Secrets:** `scripts/setup-secrets.sh` ist materialisiert, aber Keystore + `SIGNING_*` Secrets in GitHub müssen separat per Task #14 angelegt werden. Keystore-Datei wird absichtlich NICHT in diesem Scaffold-Schritt erzeugt.
 

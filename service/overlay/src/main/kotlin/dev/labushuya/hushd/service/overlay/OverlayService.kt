@@ -138,8 +138,12 @@ class OverlayService :
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL_ID) == null) {
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Bulk Autostop", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Progress overlay while Autostart is being disabled"
+                NotificationChannel(
+                    CHANNEL_ID,
+                    getString(R.string.notification_channel_name_automation),
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = getString(R.string.notification_channel_description_automation)
                     setShowBadge(false)
                 }
             )
@@ -151,11 +155,11 @@ class OverlayService :
         )
         val notif: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Autostart Manager")
-            .setContentText("Bulk-Deaktivierung läuft")
+            .setContentTitle(getString(R.string.notification_title_running))
+            .setContentText(getString(R.string.notification_text_running))
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setOngoing(true)
-            .addAction(0, "Abbrechen", stopPi)
+            .addAction(0, getString(R.string.notification_action_cancel), stopPi)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
