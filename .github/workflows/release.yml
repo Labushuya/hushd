@@ -153,7 +153,10 @@ jobs:
           SIGNING_KEY_ALIAS:         ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD:      ${{ secrets.SIGNING_KEY_PASSWORD }}
           SIGNING_LINEAGE_PATH:      ${{ env.SIGNING_LINEAGE_PATH }}
-        run: ./gradlew :app:assembleRelease --stacktrace --no-daemon
+        # Configuration cache disabled here: top-level Kotlin DSL `val`s captured in
+        # signingConfig closures are not yet cache-serializable. Acceptable trade-off
+        # for a release build that runs maybe once a week.
+        run: ./gradlew :app:assembleRelease --stacktrace --no-daemon --no-configuration-cache
 
       - name: Verify APK signature (apksigner)
         run: |
