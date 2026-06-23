@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Local guardrail in lieu of branch-protection (which requires GitHub Pro on private repos).
+# Refuses to force-push to main.
+
+set -euo pipefail
+
+protected_branch="main"
+remote="$1"
+url="$2"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    if [[ "$remote_ref" == "refs/heads/${protected_branch}" ]]; then
+        if [[ "$remote_sha" != "0000000000000000000000000000000000000000" ]]; then
+            # Check if this is a fast-forward push
+            if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+                echo "ERROR: refusing non-fast-forward push to ${protected_branch}." >&2
+                echo "  remote: ${remote_sha}" >&2
+                echo "  local:  ${local_sha}" >&2
+                echo "  If you really want this, bypass with: git push --no-verify" >&2
+                exit 1
+            fi
+        fi
+    fi
+done
+
+exit 0
