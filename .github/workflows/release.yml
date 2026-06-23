@@ -211,7 +211,7 @@ jobs:
           sbom-path:    ${{ env.SBOM_FILE }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@a74c6b72af54cfa997e81df42d94703d6313a2d0 # v2.0.6 — renovate updates these
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v2.0.6 — renovate updates these
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
