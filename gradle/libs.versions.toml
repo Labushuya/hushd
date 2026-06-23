@@ -19,7 +19,7 @@ composeCompiler = "1.5.15"
 composeNavigation = "2.8.3"
 
 # Hilt
-hilt = "2.52"
+hilt = "2.59.2"
 hiltNavigationCompose = "1.2.0"
 hiltWork = "1.2.0"
 
