@@ -1,17 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themed-icon (Android 13+) monochrome variant.
+
+  Rationale: the full "hushd" wordmark is rendered from the JetBrains
+  Mono Bold webfont and cannot be expressed faithfully as a vector path
+  inside this drawable. The themed-icon channel must be a single-color
+  vector that the launcher can tint, so we reduce the brand to its most
+  distinctive element: a centered solid disc representing the daemon
+  dot (".") that punctuates the wordmark in every other surface. The
+  disc sits in the 72dp safe zone of the 108dp adaptive canvas.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Monochrome variant (Android 13+ themed icons). System tints via fillColor white. -->
+    <!-- Daemon dot: centered solid disc, radius 18 inside the safe zone (18..90). -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M30,30 H42 V78 H30 Z" />
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M66,30 H78 V78 H66 Z" />
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M30,49 H78 V59 H30 Z" />
+        android:pathData="M54,36 a18,18 0 1,0 0.001,0 Z" />
 </vector>
