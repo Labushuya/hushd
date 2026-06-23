@@ -26,7 +26,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@db19848a5fa7950289d3668fb053140cf3028d43 # v4.0.0 — renovate updates these
+        uses: gradle/actions/wrapper-validation@3f131e8634966bd73d06cc69884922b02e6faf92 # v4.0.0 — renovate updates these
 
       - name: Set up JDK 21 (Temurin)
         uses: actions/setup-java@387ac29b308b003ca37ba93a6cab5eb57c8f5f93 # v4.0.0 — renovate updates these
@@ -35,7 +35,7 @@ jobs:
           java-version: '21'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5 # v4.0.0 — renovate updates these
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v4.0.0 — renovate updates these
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
@@ -69,14 +69,14 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - uses: gradle/actions/wrapper-validation@db19848a5fa7950289d3668fb053140cf3028d43 # v4.0.0 — renovate updates these
+      - uses: gradle/actions/wrapper-validation@3f131e8634966bd73d06cc69884922b02e6faf92 # v4.0.0 — renovate updates these
 
       - uses: actions/setup-java@387ac29b308b003ca37ba93a6cab5eb57c8f5f93 # v4.0.0 — renovate updates these
         with:
           distribution: temurin
           java-version: '21'
 
-      - uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5 # v4.0.0 — renovate updates these
+      - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v4.0.0 — renovate updates these
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
@@ -112,14 +112,14 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - uses: gradle/actions/wrapper-validation@db19848a5fa7950289d3668fb053140cf3028d43 # v4.0.0 — renovate updates these
+      - uses: gradle/actions/wrapper-validation@3f131e8634966bd73d06cc69884922b02e6faf92 # v4.0.0 — renovate updates these
 
       - uses: actions/setup-java@387ac29b308b003ca37ba93a6cab5eb57c8f5f93 # v4.0.0 — renovate updates these
         with:
           distribution: temurin
           java-version: '21'
 
-      - uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5 # v4.0.0 — renovate updates these
+      - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v4.0.0 — renovate updates these
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
