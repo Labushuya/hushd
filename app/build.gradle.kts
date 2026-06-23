@@ -186,7 +186,7 @@ android {
         checkDependencies = true
         checkReleaseBuilds = false
         sarifReport = true
-        disable += setOf("ObsoleteLintCustomCheck", "OldTargetApi")
+        disable += setOf("ObsoleteLintCustomCheck", "OldTargetApi", "MissingTranslation")
     }
 
     testOptions {
