@@ -16,10 +16,12 @@ import dev.labushuya.hushd.R
 import timber.log.Timber
 
 class BootCompletedReceiver : BroadcastReceiver() {
-
     override fun onReceive(ctx: Context, intent: Intent?) {
         if (intent?.action != Intent.ACTION_BOOT_COMPLETED &&
-            intent?.action != Intent.ACTION_LOCKED_BOOT_COMPLETED) return
+            intent?.action != Intent.ACTION_LOCKED_BOOT_COMPLETED
+        ) {
+            return
+        }
         Timber.tag(TAG).i("BootCompleted received — checking a11y status")
 
         val am = ctx.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
@@ -46,14 +48,16 @@ class BootCompletedReceiver : BroadcastReceiver() {
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ).apply {
                     description = ctx.getString(R.string.notification_text_service_disabled)
-                }
+                },
             )
         }
         val openA11y = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val pi = PendingIntent.getActivity(
-            ctx, 0, openA11y,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            ctx,
+            0,
+            openA11y,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notif = NotificationCompat.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_warn)

@@ -27,6 +27,15 @@ ktlint_standard_function-signature = disabled
 ktlint_standard_function-expression-body = disabled
 ktlint_standard_property-naming = disabled
 ktlint_standard_class-signature = disabled
+ktlint_standard_function-naming = disabled
+ktlint_standard_no-empty-first-line-in-class-body = disabled
+ktlint_standard_argument-list-wrapping = disabled
+ktlint_standard_parameter-list-wrapping = disabled
+ktlint_standard_trailing-comma-on-call-site = disabled
+ktlint_standard_trailing-comma-on-declaration-site = disabled
+ktlint_standard_multiline-if-else = disabled
+ktlint_standard_statement-wrapping = disabled
+ktlint_standard_no-multi-spaces = disabled
 ktlint_function_signature_body_expression_wrapping = default
 
 [*.gradle.kts]
