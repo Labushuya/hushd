@@ -1,0 +1,134 @@
+name: Bug report
+description: Report a defect in Hushd so we can fix it
+title: "bug: <short description>"
+labels: ["bug", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please complete every field — incomplete reports are closed as `needs-info` after 14 days.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I am running the latest Hushd release from GitHub Releases.
+          required: true
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true
+        - label: I have read the Troubleshooting section in the README.
+          required: true
+
+  - type: input
+    id: device-vendor
+    attributes:
+      label: Device manufacturer
+      description: e.g. HONOR, Huawei, Xiaomi
+      placeholder: HONOR
+    validations:
+      required: true
+
+  - type: input
+    id: device-model
+    attributes:
+      label: Device model
+      description: e.g. Magic V2, Magic6 Pro
+      placeholder: Magic V2
+    validations:
+      required: true
+
+  - type: input
+    id: android-version
+    attributes:
+      label: Android version
+      description: From Settings → About phone → Android version
+      placeholder: "14"
+    validations:
+      required: true
+
+  - type: input
+    id: rom-version
+    attributes:
+      label: ROM name and version
+      description: e.g. MagicOS 8.0.0.180, MagicOS 7.2.0.225
+      placeholder: MagicOS 8.0.0.180
+    validations:
+      required: true
+
+  - type: input
+    id: hushd-version
+    attributes:
+      label: Hushd version
+      description: From Settings → About in Hushd, or the APK filename
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: accessibility-active
+    attributes:
+      label: Was Hushd's AccessibilityService active when the bug occurred?
+      options:
+        - "Yes"
+        - "No"
+        - "I don't know"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered list. Be exact.
+      placeholder: |
+        1. Open Hushd
+        2. Select 'Calculator'
+        3. Tap 'Disable autostart'
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      placeholder: The autostart toggle for Calculator is disabled and the journal shows SUCCESS.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      placeholder: The toggle remains enabled. Journal shows TOGGLE_NOT_FOUND.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logcat output
+      description: |
+        Capture with: `adb logcat -d -v threadtime *:V | grep -iE 'hushd|accessibility'`
+        Paste at most 200 lines. **Redact anything that identifies you.**
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or screen recording
+      description: Drag and drop here. Mandatory for any UI-visible bug.
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Custom MagicOS launcher? Theme engine? Active Accessibility services other than Hushd?
+    validations:
+      required: false

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Safe zone is the centered 72dp x 72dp area (18..90). H glyph fits inside. -->
+    <!-- Left vertical bar -->
+    <path
+        android:fillColor="#EF4444"
+        android:pathData="M30,30 H42 V78 H30 Z" />
+    <!-- Right vertical bar -->
+    <path
+        android:fillColor="#EF4444"
+        android:pathData="M66,30 H78 V78 H66 Z" />
+    <!-- Horizontal connector -->
+    <path
+        android:fillColor="#EF4444"
+        android:pathData="M30,49 H78 V59 H30 Z" />
+</vector>

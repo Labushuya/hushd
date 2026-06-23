@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hushd</string>
+    <string name="disclaimer_title">Before you continue</string>
+    <string name="disclaimer_body">Hushd controls another app\'s UI through Android\'s AccessibilityService. It is built for HONOR MagicOS 7/8 on the HONOR Magic V2. It clicks buttons in the HONOR Phone Manager just like you would. It does not access network, does not collect data, and never sends anything off-device. UI automation may break on future MagicOS updates without warning. You run this on your own device, at your own risk.</string>
+    <string name="disclaimer_accept_label">I understand and accept the risks</string>
+</resources>

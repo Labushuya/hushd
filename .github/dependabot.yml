@@ -1,0 +1,50 @@
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 10
+    labels: [dependencies, gradle]
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin*"
+          - "org.jetbrains.kotlinx:*"
+      androidx:
+        patterns: ["androidx.*"]
+        exclude-patterns: ["androidx.compose.*"]
+      compose:
+        patterns: ["androidx.compose.*"]
+      lint-and-format:
+        patterns:
+          - "com.pinterest.ktlint*"
+          - "io.gitlab.arturbosch.detekt*"
+
+  - package-ecosystem: gradle
+    directory: "/build-logic"
+    schedule:
+      interval: weekly
+    labels: [dependencies, build-logic]
+    commit-message:
+      prefix: "chore(build-logic)"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Europe/Berlin
+    labels: [dependencies, github-actions]
+    commit-message:
+      prefix: "chore(actions)"
+    groups:
+      actions-minor:
+        update-types: [minor, patch]

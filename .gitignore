@@ -1,0 +1,25 @@
+# Android / Gradle
+build/
+.gradle/
+local.properties
+*.keystore
+*.jks
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Logs / output
+*.log
+*.hprof
+
+# Generated
+/app/release/
+/app/debug/

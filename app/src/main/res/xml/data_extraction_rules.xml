@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Closes the auto-backup DSGVO gap: audit log and app list contain other apps' package names
+  (potentially sensitive: banking, dating, healthcare). Must NOT be uploaded to Google Drive
+  via auto-backup, and must NOT leave the device on D2D transfer either.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,0 +1,190 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (ktlint + detekt + android-lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1 — renovate updates these
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@db19848a5fa7950289d3668fb053140cf3028d43 # v4.0.0 — renovate updates these
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@387ac29b308b003ca37ba93a6cab5eb57c8f5f93 # v4.0.0 — renovate updates these
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5 # v4.0.0 — renovate updates these
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: ktlint
+        run: ./gradlew ktlintCheck --stacktrace
+
+      - name: detekt
+        run: ./gradlew detekt --stacktrace
+
+      - name: Android Lint
+        run: ./gradlew lintDebug --stacktrace
+
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3 — renovate updates these
+        with:
+          name: lint-reports
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/ktlint/
+            app/build/reports/detekt/
+          if-no-files-found: ignore
+
+  unit-test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1 — renovate updates these
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: gradle/actions/wrapper-validation@db19848a5fa7950289d3668fb053140cf3028d43 # v4.0.0 — renovate updates these
+
+      - uses: actions/setup-java@387ac29b308b003ca37ba93a6cab5eb57c8f5f93 # v4.0.0 — renovate updates these
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5 # v4.0.0 — renovate updates these
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3 — renovate updates these
+        with:
+          name: unit-test-report
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Publish test summary
+        if: always()
+        uses: mikepenz/action-junit-report@5f47764eec0e1c1f19f40c8e60a5ba47e47015c5 # v4.3.1 — renovate updates these
+        with:
+          report_paths: 'app/build/test-results/testDebugUnitTest/*.xml'
+          fail_on_failure: true
+
+  assemble-debug:
+    name: Assemble debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [lint, unit-test]
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1 — renovate updates these
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: gradle/actions/wrapper-validation@db19848a5fa7950289d3668fb053140cf3028d43 # v4.0.0 — renovate updates these
+
+      - uses: actions/setup-java@387ac29b308b003ca37ba93a6cab5eb57c8f5f93 # v4.0.0 — renovate updates these
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5 # v4.0.0 — renovate updates these
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3 — renovate updates these
+        with:
+          name: debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1 — renovate updates these
+        with:
+          persist-credentials: false
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@72eb03d02c7872a771aacd928f3123ac62ad6d3a # v4.3.3 — renovate updates these
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+          deny-licenses: 'AGPL-1.0-only, AGPL-1.0-or-later, LGPL-2.0-only'
+
+  mobsf-scan:
+    name: MobSF static scan (advisory)
+    runs-on: ubuntu-latest
+    needs: assemble-debug
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Download debug APK
+        uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7 — renovate updates these
+        with:
+          name: debug-apk
+          path: artifacts/
+
+      - name: Run MobSF (Docker)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          APK=$(find artifacts -name '*.apk' | head -n1)
+          docker run --rm \
+            -v "$(pwd)/artifacts:/work" \
+            opensecurity/mobile-security-framework-mobsf:latest \
+            /bin/bash -lc "python3 /root/Mobile-Security-Framework-MobSF/manage.py scan_apk /work/$(basename "$APK") --output /work/mobsf-report.json --severity high" \
+            || true
+
+      - name: Upload MobSF report
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3 — renovate updates these
+        with:
+          name: mobsf-report
+          path: artifacts/mobsf-report.*
+          if-no-files-found: ignore

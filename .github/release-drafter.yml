@@ -1,0 +1,57 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+categories:
+  - title: 'Breaking changes'
+    labels: ['breaking', 'major']
+  - title: 'Features'
+    labels: ['feature', 'enhancement', 'feat']
+  - title: 'Bug fixes'
+    labels: ['fix', 'bugfix', 'bug']
+  - title: 'Security'
+    labels: ['security']
+  - title: 'Performance'
+    labels: ['performance', 'perf']
+  - title: 'Dependencies'
+    labels: ['dependencies', 'deps']
+    collapse-after: 5
+  - title: 'Documentation'
+    labels: ['docs', 'documentation']
+  - title: 'Internal / Chore'
+    labels: ['chore', 'refactor', 'test', 'ci']
+change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
+change-title-escapes: '\<*_&'
+version-resolver:
+  major:
+    labels: ['breaking', 'major']
+  minor:
+    labels: ['feature', 'enhancement', 'feat', 'minor']
+  patch:
+    labels: ['fix', 'bugfix', 'bug', 'patch', 'security', 'docs', 'chore']
+  default: patch
+autolabeler:
+  - label: 'feat'
+    title: ['/^feat(\(.+\))?:/i']
+  - label: 'fix'
+    title: ['/^fix(\(.+\))?:/i']
+  - label: 'docs'
+    title: ['/^docs(\(.+\))?:/i']
+  - label: 'chore'
+    title: ['/^chore(\(.+\))?:/i']
+  - label: 'refactor'
+    title: ['/^refactor(\(.+\))?:/i']
+  - label: 'perf'
+    title: ['/^perf(\(.+\))?:/i']
+  - label: 'test'
+    title: ['/^test(\(.+\))?:/i']
+  - label: 'ci'
+    title: ['/^ci(\(.+\))?:/i']
+  - label: 'breaking'
+    title: ['/!:/']
+  - label: 'security'
+    title: ['/^security(\(.+\))?:/i']
+template: |
+  ## What's changed
+
+  $CHANGES
+
+  **Full diff**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

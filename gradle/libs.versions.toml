@@ -1,0 +1,192 @@
+[versions]
+# Core toolchain
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.28"
+agp = "8.6.1"
+javaTarget = "21"
+
+# AndroidX core
+androidxCore = "1.13.1"
+androidxActivity = "1.9.3"
+androidxLifecycle = "2.8.7"
+androidxStartup = "1.2.0"
+androidxAppcompat = "1.7.0"
+androidxSavedState = "1.2.1"
+
+# Compose
+composeBom = "2024.10.01"
+composeCompiler = "1.5.15"
+composeNavigation = "2.8.3"
+
+# Hilt
+hilt = "2.52"
+hiltNavigationCompose = "1.2.0"
+hiltWork = "1.2.0"
+
+# Room
+room = "2.6.1"
+
+# DataStore
+datastore = "1.1.1"
+
+# WorkManager
+workManager = "2.9.1"
+
+# Coroutines
+coroutines = "1.9.0"
+
+# Logging
+timber = "5.0.1"
+
+# JSON (for SBOM / audit export — local only)
+kotlinxSerialization = "1.7.3"
+
+# Testing
+junit5 = "5.11.3"
+junit5Platform = "1.11.3"
+junit4 = "4.13.2"
+androidxTestExt = "1.2.1"
+androidxTestRunner = "1.6.2"
+androidxTestCore = "1.6.1"
+androidxEspresso = "3.6.1"
+turbine = "1.2.0"
+mockk = "1.13.13"
+truth = "1.4.4"
+robolectric = "4.13"
+
+# Static analysis / formatting
+detekt = "1.23.7"
+ktlint = "12.1.1"
+spotless = "6.25.0"
+androidLint = "31.6.1"
+
+# Supply chain
+cyclonedx = "1.10.0"
+
+[libraries]
+# AndroidX core
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivity" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidxAppcompat" }
+androidx-startup = { module = "androidx.startup:startup-runtime", version.ref = "androidxStartup" }
+androidx-savedstate = { module = "androidx.savedstate:savedstate-ktx", version.ref = "androidxSavedState" }
+
+# Lifecycle
+androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidxLifecycle" }
+androidx-lifecycle-viewmodel-ktx = { module = "androidx.lifecycle:lifecycle-viewmodel-ktx", version.ref = "androidxLifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidxLifecycle" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidxLifecycle" }
+androidx-lifecycle-service = { module = "androidx.lifecycle:lifecycle-service", version.ref = "androidxLifecycle" }
+androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "androidxLifecycle" }
+
+# Compose
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
+compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
+compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
+compose-foundation = { module = "androidx.compose.foundation:foundation" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
+compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
+compose-navigation = { module = "androidx.navigation:navigation-compose", version.ref = "composeNavigation" }
+
+# Hilt
+hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }
+hilt-compiler = { module = "com.google.dagger:hilt-compiler", version.ref = "hilt" }
+hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
+hilt-work = { module = "androidx.hilt:hilt-work", version.ref = "hiltWork" }
+hilt-work-compiler = { module = "androidx.hilt:hilt-compiler", version.ref = "hiltWork" }
+
+# Room
+room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
+room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
+room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
+
+# DataStore
+datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
+
+# WorkManager
+work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "workManager" }
+
+# Coroutines
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+# Logging
+timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
+
+# Test — JUnit 5 (unit tests)
+junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit5" }
+junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit5" }
+junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit5" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit5Platform" }
+# Test — JUnit 4 (Android instrumented + Robolectric still need it)
+junit4 = { module = "junit:junit", version.ref = "junit4" }
+# Test — AndroidX
+androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestExt" }
+androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
+androidx-test-core = { module = "androidx.test:core-ktx", version.ref = "androidxTestCore" }
+androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "androidxEspresso" }
+# Test — utility
+turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+mockk-android = { module = "io.mockk:mockk-android", version.ref = "mockk" }
+truth = { module = "com.google.truth:truth", version.ref = "truth" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+
+# Static analysis classpath deps (for convention plugins)
+gradle-android = { module = "com.android.tools.build:gradle", version.ref = "agp" }
+gradle-kotlin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+gradle-ksp = { module = "com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin", version.ref = "ksp" }
+gradle-hilt = { module = "com.google.dagger:hilt-android-gradle-plugin", version.ref = "hilt" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+android-lint = { id = "com.android.lint", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+cyclonedx = { id = "org.cyclonedx.bom", version.ref = "cyclonedx" }
+
+[bundles]
+compose = [
+    "compose-ui",
+    "compose-ui-graphics",
+    "compose-ui-tooling-preview",
+    "compose-foundation",
+    "compose-material3",
+    "compose-material-icons-extended",
+]
+lifecycle = [
+    "androidx-lifecycle-runtime-ktx",
+    "androidx-lifecycle-viewmodel-ktx",
+    "androidx-lifecycle-viewmodel-compose",
+    "androidx-lifecycle-runtime-compose",
+]
+test-unit = [
+    "junit-jupiter-api",
+    "junit-jupiter-params",
+    "kotlinx-coroutines-test",
+    "turbine",
+    "mockk",
+    "truth",
+]
+test-android = [
+    "androidx-test-ext-junit",
+    "androidx-test-runner",
+    "androidx-test-core",
+    "androidx-test-espresso-core",
+    "mockk-android",
+]

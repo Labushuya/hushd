@@ -1,0 +1,118 @@
+name: Device profile request
+description: Request support for a new ROM, version, or language by submitting profile data
+title: "profile: <vendor> <rom> <version> <lang>"
+labels: ["profile", "help wanted"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Hushd V1 supports HONOR Magic V2 with MagicOS 7 and 8 only. Other ROMs, other devices, or new MagicOS minor versions need a **device profile**.
+
+        A profile is a small JSON file in `assets/profiles/` that tells Hushd:
+        - which Settings activity to deep-link to
+        - what UI text identifies the autostart toggle
+        - which `accessibilityWindowId` parent to anchor on
+
+        With the information you provide here, we (or a contributor) can build that profile. The more you fill in, the faster the profile lands.
+
+  - type: input
+    id: vendor
+    attributes:
+      label: Vendor
+      placeholder: Xiaomi
+    validations:
+      required: true
+
+  - type: input
+    id: rom-name
+    attributes:
+      label: ROM name
+      placeholder: HyperOS
+    validations:
+      required: true
+
+  - type: input
+    id: rom-version
+    attributes:
+      label: ROM version (exact build)
+      description: From Settings → About phone → MIUI version / HyperOS version / OneUI version
+      placeholder: HyperOS 1.0.4.0 UNCEUXM
+    validations:
+      required: true
+
+  - type: input
+    id: android-version
+    attributes:
+      label: Underlying Android version
+      placeholder: "14"
+    validations:
+      required: true
+
+  - type: input
+    id: device-model
+    attributes:
+      label: Device model
+      placeholder: Xiaomi 14
+    validations:
+      required: true
+
+  - type: input
+    id: ui-language
+    attributes:
+      label: System language at time of capture
+      description: Toggle texts differ per language. Specify the locale.
+      placeholder: de-DE
+    validations:
+      required: true
+
+  - type: input
+    id: settings-activity
+    attributes:
+      label: Settings activity path (if known)
+      description: |
+        From `adb shell dumpsys window | grep -iE 'mCurrentFocus|mFocusedApp'`
+        or, on the device, by long-pressing the settings entry if your launcher supports it.
+      placeholder: com.miui.powerkeeper/.ui.HiddenAppsConfigActivity
+    validations:
+      required: false
+
+  - type: input
+    id: toggle-text
+    attributes:
+      label: Exact toggle label text
+      description: Copy character-for-character, including punctuation. Provide all variants if the toggle appears more than once on the page.
+      placeholder: "Autostart"
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot of the settings screen with the autostart toggle visible
+      description: Drag and drop. **Mandatory** — without it, the profile cannot be built.
+    validations:
+      required: true
+
+  - type: textarea
+    id: dumpsys
+    attributes:
+      label: "Optional: adb dumpsys output"
+      description: |
+        With the settings screen visible on the device, run:
+        ```
+        adb shell dumpsys window windows | grep -iE 'mCurrentFocus|mFocusedApp'
+        adb shell uiautomator dump /sdcard/dump.xml && adb pull /sdcard/dump.xml
+        ```
+        Paste the contents of `dump.xml` here, or attach it as a file. Massively speeds up profile creation.
+      render: xml
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything unusual? Multiple confirmation dialogs? Animated transitions that confuse the dump?
+    validations:
+      required: false

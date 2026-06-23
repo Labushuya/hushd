@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: GPL-3.0-or-later
+
+  Hardening rationale:
+  - isAccessibilityTool="false": this app is NOT a disability assistive tool. Honest declaration.
+  - packageNames: strict 3-element whitelist. Service receives ZERO events from banking/messengers/browsers.
+  - canPerformGestures="true": required for the dispatchGesture fallback when a Force-Stop / Auto-launch
+    toggle node is not directly clickable (some MagicOS builds expose a non-clickable container with the
+    actual hit target rendered as a Compose surface). Use is restricted in code via single-operation Mutex
+    + 8s watchdog; ArchUnit test forbids dispatchGesture calls outside :service-accessibility module.
+  - flagReportViewIds: NOT set - view IDs are not required (text-match strategy localised via getResourcesForApplication).
+  - flagRequestTouchExplorationMode: NOT set - never alter global touch behaviour.
+  - flagRequestFilterKeyEvents: NOT set - no keystroke capture.
+  - notificationTimeout="100": dedups CONTENT_CHANGED bursts without losing state transitions.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/a11y_service_description"
+    android:summary="@string/a11y_service_summary"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
+    android:isAccessibilityTool="false"
+    android:notificationTimeout="100"
+    android:packageNames="com.android.settings,com.hihonor.systemmanager,com.huawei.systemmanager"
+    android:settingsActivity="dev.labushuya.hushd.ui.A11ySettingsActivity" />

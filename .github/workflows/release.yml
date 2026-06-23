@@ -1,0 +1,250 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate-tag:
+    name: Validate tag and ancestry
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1 — renovate updates these
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate semver tag
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+            echo "::error::Tag '$TAG' is not a valid semver (vMAJOR.MINOR.PATCH[-PRERELEASE])"
+            exit 1
+          fi
+
+      - name: Ensure tag is on main
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=0
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error::Tag commit ${GITHUB_SHA} is not an ancestor of origin/main"
+            exit 1
+          fi
+
+      - name: Ensure CHANGELOG entry exists
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! grep -qE "^##\s+\[?${VERSION}\]?" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for v${VERSION}"
+            exit 1
+          fi
+
+  build-and-sign:
+    name: Build, sign, SBOM, attest, release
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: production
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    outputs:
+      version_name: ${{ steps.version.outputs.version_name }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      apk_sha256:   ${{ steps.sums.outputs.apk_sha256 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1 — renovate updates these
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@db19848a5fa7950289d3668fb053140cf3028d43 # v4.0.0 — renovate updates these
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@387ac29b308b003ca37ba93a6cab5eb57c8f5f93 # v4.0.0 — renovate updates these
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5 # v4.0.0 — renovate updates these
+
+      - name: Derive versionName / versionCode
+        id: version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION_NAME="${TAG#v}"
+          VERSION_CODE=$(git rev-list --count HEAD)
+          # Sanity: must be > previously published versionCode
+          LAST=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // ""' 2>/dev/null || echo "")
+          if [[ -n "$LAST" && "$LAST" != "$TAG" ]]; then
+            LAST_CODE=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${LAST}" --jq '.body' 2>/dev/null \
+              | grep -oE 'versionCode.*[0-9]+' | grep -oE '[0-9]+$' | head -n1 || echo 0)
+            if [[ -n "$LAST_CODE" && "$VERSION_CODE" -le "$LAST_CODE" ]]; then
+              echo "::error::Derived versionCode $VERSION_CODE is not greater than previous $LAST_CODE — git history may have been rewritten"
+              exit 1
+            fi
+          fi
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "ORG_GRADLE_PROJECT_versionName=${VERSION_NAME}" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_versionCode=${VERSION_CODE}" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          KEYSTORE_DIR="${RUNNER_TEMP}/keystore"
+          mkdir -p "$KEYSTORE_DIR"
+          # tr -d strips accidental newlines from Windows/PowerShell copy-paste
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 --decode > "$KEYSTORE_DIR/release.jks"
+          chmod 600 "$KEYSTORE_DIR/release.jks"
+          # Mask further to harden against accidental log echo
+          echo "::add-mask::$KEYSTORE_DIR/release.jks"
+          echo "KEYSTORE_PATH=$KEYSTORE_DIR/release.jks" >> "$GITHUB_ENV"
+
+      - name: Optional signing lineage (key rotation)
+        env:
+          LINEAGE_B64: ${{ secrets.SIGNING_LINEAGE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${LINEAGE_B64:-}" ]]; then
+            printf '%s' "$LINEAGE_B64" | tr -d '\n\r ' | base64 --decode > "${RUNNER_TEMP}/keystore/lineage.bin"
+            echo "SIGNING_LINEAGE_PATH=${RUNNER_TEMP}/keystore/lineage.bin" >> "$GITHUB_ENV"
+          fi
+
+      - name: Assemble release APK
+        env:
+          SIGNING_KEYSTORE_PATH:     ${{ env.KEYSTORE_PATH }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS:         ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD:      ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_LINEAGE_PATH:      ${{ env.SIGNING_LINEAGE_PATH }}
+        run: ./gradlew :app:assembleRelease --stacktrace --no-daemon
+
+      - name: Verify APK signature (apksigner)
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n1)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n1)
+          "${BT}apksigner" verify --verbose --print-certs "$APK"
+          echo "SIGNED_APK=$APK" >> "$GITHUB_ENV"
+
+      - name: Rename APK
+        run: |
+          set -euo pipefail
+          NAME="hushd-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.version_code }}.apk"
+          cp "$SIGNED_APK" "$RUNNER_TEMP/$NAME"
+          echo "RELEASE_APK=$RUNNER_TEMP/$NAME" >> "$GITHUB_ENV"
+
+      - name: Stage R8 mapping
+        run: |
+          set -euo pipefail
+          MAP="app/build/outputs/mapping/release/mapping.txt"
+          if [[ -f "$MAP" ]]; then
+            DEST="${RUNNER_TEMP}/mapping-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.version_code }}.txt"
+            cp "$MAP" "$DEST"
+            echo "MAPPING_FILE=$DEST" >> "$GITHUB_ENV"
+          fi
+
+      - name: Generate SBOM (CycloneDX)
+        run: ./gradlew :app:cyclonedxBom --stacktrace --no-daemon
+
+      - name: Stage SBOM
+        run: |
+          set -euo pipefail
+          SRC="app/build/reports/bom.json"
+          [[ -f "$SRC" ]] || { echo "::error::CycloneDX SBOM not produced at $SRC"; exit 1; }
+          DEST="${RUNNER_TEMP}/hushd-${{ steps.version.outputs.version_name }}-sbom.cyclonedx.json"
+          cp "$SRC" "$DEST"
+          echo "SBOM_FILE=$DEST" >> "$GITHUB_ENV"
+
+      - name: Compute SHA-256 sums
+        id: sums
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          FILES=("$(basename "$RELEASE_APK")" "$(basename "$SBOM_FILE")")
+          [[ -n "${MAPPING_FILE:-}" ]] && FILES+=("$(basename "$MAPPING_FILE")")
+          sha256sum "${FILES[@]}" > sha256sums.txt
+          cat sha256sums.txt
+          APK_SHA=$(sha256sum "$(basename "$RELEASE_APK")" | awk '{print $1}')
+          echo "apk_sha256=$APK_SHA" >> "$GITHUB_OUTPUT"
+          echo "SUMS_FILE=$RUNNER_TEMP/sha256sums.txt" >> "$GITHUB_ENV"
+
+      - name: Attest build provenance (APK)
+        uses: actions/attest-build-provenance@173725a1209d09b31f9d30a3890cf2757ebbff0d # v1.1.2 — renovate updates these
+        continue-on-error: true
+        with:
+          subject-path: ${{ env.RELEASE_APK }}
+
+      - name: Attest build provenance (SBOM)
+        uses: actions/attest-build-provenance@173725a1209d09b31f9d30a3890cf2757ebbff0d # v1.1.2 — renovate updates these
+        continue-on-error: true
+        with:
+          subject-path: ${{ env.SBOM_FILE }}
+
+      - name: Attest SBOM as predicate of APK
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v1.4.1 — renovate updates these
+        continue-on-error: true
+        with:
+          subject-path: ${{ env.RELEASE_APK }}
+          sbom-path:    ${{ env.SBOM_FILE }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@a74c6b72af54cfa997e81df42d94703d6313a2d0 # v2.0.6 — renovate updates these
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
+          files: |
+            ${{ env.RELEASE_APK }}
+            ${{ env.SBOM_FILE }}
+            ${{ env.SUMS_FILE }}
+            ${{ env.MAPPING_FILE }}
+          body: |
+            ## Verification
+
+            - versionName: `${{ steps.version.outputs.version_name }}`
+            - versionCode: `${{ steps.version.outputs.version_code }}`
+            - APK SHA-256: `${{ steps.sums.outputs.apk_sha256 }}`
+
+            Verify the APK signature locally:
+            ```
+            apksigner verify --print-certs hushd-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.version_code }}.apk
+            ```
+
+            Verify Sigstore attestation:
+            ```
+            gh attestation verify hushd-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.version_code }}.apk \
+              --repo ${{ github.repository }}
+            ```
+
+            Verify SHA-256 sums:
+            ```
+            sha256sum -c sha256sums.txt
+            ```
+
+            SBOM: CycloneDX 1.5 — `*-sbom.cyclonedx.json`.

@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: GPL-3.0-or-later
+  Copyright (C) 2026 Autostart Manager contributors
+
+  Manifest hardening notes:
+  - No INTERNET permission - structural defense against exfiltration via A11y service.
+  - allowBackup=false + dataExtractionRules: audit log MUST NOT leave the device via auto-backup.
+  - isAccessibilityTool=false declared in res/xml/accessibility_service_config.xml (not a disability tool).
+  - <queries> block satisfies Android 11+ package visibility for ComponentName-targeted intents.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- App-list enumeration. Sideload-primary distribution; in-app prominent disclosure required. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- Accessibility service binding is granted by the system; declare for clarity (no-op as uses-permission). -->
+    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Floating progress/cancel overlay during bulk run. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Foreground services: overlay + a11y lifetime anchor. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Android 13+ runtime notification permission for the foreground service notification. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Boot receiver: NOT for self-autostart; only triggers a one-shot WorkManager job
+         to check whether MagicOS disabled our a11y service after reboot/OTA and notifies the user. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- User-driven request to exempt THIS app from MagicOS battery optimisation
+         (otherwise the phone manager kills our service mid bulk-run). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Android 11+ package visibility: required for ComponentName-targeted intents and
+         PackageManager.resolveActivity() on these packages even when QUERY_ALL_PACKAGES is granted. -->
+    <queries>
+        <package android:name="com.android.settings" />
+        <package android:name="com.hihonor.systemmanager" />
+        <package android:name="com.huawei.systemmanager" />
+        <intent>
+            <action android:name="android.settings.APPLICATION_DETAILS_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.ACCESSIBILITY_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.MANAGE_OVERLAY_PERMISSION" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".AutostopApp"
+        android:label="@string/app_name"
+        android:description="@string/app_description"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:appCategory="productivity"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
+        android:hardwareAccelerated="true"
+        android:localeConfig="@xml/locales_config"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AutostartManager"
+        android:usesCleartextTraffic="false"
+        tools:targetApi="34">
+
+        <!-- Android 13+ themed (monochrome) icon for Material You. -->
+        <meta-data
+            android:name="android.app.shortcuts"
+            android:resource="@xml/shortcuts" />
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale|layoutDirection|locale"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.AutostartManager.Splash">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- A11y service settings entry-point activity (linked from accessibility_service_config.xml). -->
+        <activity
+            android:name=".ui.A11ySettingsActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.MainActivity" />
+
+        <!-- Bulk-run overlay; declared as specialUse FGS with explicit subtype property. -->
+        <service
+            android:name=".service.overlay.OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="bulk-autostart-disable-progress-overlay" />
+        </service>
+
+        <!-- AccessibilityService: scoped to settings/system-manager packages via the config xml. -->
+        <service
+            android:name=".service.accessibility.AutostartAccessibilityService"
+            android:exported="true"
+            android:label="@string/a11y_service_label"
+            android:description="@string/a11y_service_description"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="settings-ui-automation-for-autostart-toggle" />
+        </service>
+
+        <!-- Boot receiver: one-shot self-check whether MagicOS disabled our a11y service post-reboot.
+             Does NOT autostart the app. Schedules a WorkManager OneTimeWorkRequest. -->
+        <receiver
+            android:name=".receiver.BootCompletedReceiver"
+            android:exported="true"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>

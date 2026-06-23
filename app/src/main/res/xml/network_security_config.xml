@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Defense-in-depth: even though the app has no INTERNET permission, an explicit
+  NSC that forbids cleartext and declares an empty trust anchor makes the
+  no-network posture grep-able and audit-friendly. F-Droid reviewers and exodus-privacy
+  pick this up as a positive signal.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors />
+    </base-config>
+</network-security-config>
