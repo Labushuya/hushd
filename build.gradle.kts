@@ -88,9 +88,11 @@ allprojects {
 tasks.register("staticAnalysis") {
     group = "verification"
     description = "Runs detekt, ktlint, spotless across all modules"
-    dependsOn(subprojects.flatMap { sub ->
-        listOf("detekt", "ktlintCheck", "spotlessCheck").map { task -> "${sub.path}:$task" }
-    })
+    dependsOn(
+        subprojects.flatMap { sub ->
+            listOf("detekt", "ktlintCheck", "spotlessCheck").map { task -> "${sub.path}:$task" }
+        },
+    )
 }
 
 tasks.register<Delete>("cleanAll") {

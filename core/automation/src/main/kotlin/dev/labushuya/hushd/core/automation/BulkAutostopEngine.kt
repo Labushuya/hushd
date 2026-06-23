@@ -5,8 +5,6 @@ import android.content.Context
 import android.content.Intent
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.labushuya.hushd.core.automation.oem.OemProfileResolver
-import dev.labushuya.hushd.service.accessibility.AutostopAccessibilityService
-import dev.labushuya.hushd.service.accessibility.AutostopAccessibilityService.ServiceCommand
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -88,11 +86,11 @@ class BulkAutostopEngine @Inject constructor(
 
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var serviceRef: WeakReference<AutostopAccessibilityService>? = null
+    private var serviceRef: WeakReference<A11yServiceHandle>? = null
     private var runJob: Job? = null
     @Volatile private var cancelRequested: Boolean = false
 
-    fun attachService(svc: AutostopAccessibilityService) {
+    fun attachService(svc: A11yServiceHandle) {
         serviceRef = WeakReference(svc)
         // Engine konsumiert outbound-events
         scope.launch {

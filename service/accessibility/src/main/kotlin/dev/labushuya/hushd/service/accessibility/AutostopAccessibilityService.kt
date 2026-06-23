@@ -10,8 +10,10 @@ import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import dagger.hilt.android.AndroidEntryPoint
+import dev.labushuya.hushd.core.automation.A11yServiceHandle
 import dev.labushuya.hushd.core.automation.BulkAutostopEngine
 import dev.labushuya.hushd.core.automation.NodeEvent
+import dev.labushuya.hushd.core.automation.ServiceCommand
 import dev.labushuya.hushd.core.automation.oem.OemProfileResolver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +36,7 @@ import javax.inject.Inject
  * TYPE_WINDOW_CONTENT_CHANGED hören (siehe accessibility_service_config.xml).
  */
 @AndroidEntryPoint
-class AutostopAccessibilityService : AccessibilityService() {
+class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
 
     @Inject lateinit var engine: BulkAutostopEngine
     @Inject lateinit var profileResolver: OemProfileResolver
@@ -47,7 +49,7 @@ class AutostopAccessibilityService : AccessibilityService() {
     private val outbound: Channel<NodeEvent> =
         Channel(capacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
-    val events: Channel<NodeEvent> get() = outbound
+    override val events: Channel<NodeEvent> get() = outbound
 
     private val serviceScope = MainScope()
     private val watchdog = Handler(Looper.getMainLooper())
@@ -229,13 +231,6 @@ class AutostopAccessibilityService : AccessibilityService() {
 
     private fun cancelWatchdog() {
         watchdog.removeCallbacksAndMessages(watchdogToken)
-    }
-
-    sealed interface ServiceCommand {
-        data class ClickToggleForPackage(val targetPackage: String) : ServiceCommand
-        data class VerifyToggleOff(val targetPackage: String) : ServiceCommand
-        data object GlobalBack : ServiceCommand
-        data object DisableSelf : ServiceCommand
     }
 
     companion object {
