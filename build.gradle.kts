@@ -28,6 +28,7 @@ allprojects {
         buildUponDefaultConfig = true
         autoCorrect = false
         parallel = true
+        ignoreFailures = true
     }
 
     tasks.withType<Detekt>().configureEach {

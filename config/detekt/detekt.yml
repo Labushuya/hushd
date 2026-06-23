@@ -1,0 +1,64 @@
+# Detekt config — V1 minimal overlay.
+# `buildUponDefaultConfig=true` ergänzt diese Datei zur eingebauten Default-Config.
+# Hier nur Abweichungen vom Default eintragen.
+
+build:
+  maxIssues: 0
+  weights:
+    complexity: 2
+    LongParameterList: 1
+    style: 1
+    comments: 0
+
+# Style-Rules, die in V1 zu viel Lärm machen — werden V2 sukzessive aktiviert.
+style:
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    active: false
+  ReturnCount:
+    active: false
+  WildcardImport:
+    active: false
+  UnusedPrivateMember:
+    active: false
+  UnusedImports:
+    active: false
+  NewLineAtEndOfFile:
+    active: false
+  TrailingWhitespace:
+    active: false
+  ForbiddenComment:
+    active: false
+
+complexity:
+  TooGenericExceptionCaught:
+    active: false
+  LongMethod:
+    active: false
+  LongParameterList:
+    active: false
+  CyclomaticComplexMethod:
+    active: false
+  ComplexCondition:
+    active: false
+  NestedBlockDepth:
+    active: false
+
+naming:
+  TopLevelPropertyNaming:
+    active: false
+  FunctionNaming:
+    active: false
+
+empty-blocks:
+  EmptyFunctionBlock:
+    active: false
+
+exceptions:
+  SwallowedException:
+    active: false
+  TooGenericExceptionThrown:
+    active: false
+  ThrowingExceptionsWithoutMessageOrCause:
+    active: false
