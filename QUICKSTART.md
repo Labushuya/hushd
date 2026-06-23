@@ -7,13 +7,19 @@
 ## Was bereits steht (von mir erledigt)
 
 - ✅ **Repo:** [github.com/Labushuya/hushd](https://github.com/Labushuya/hushd) (private)
-- ✅ **Initial-Commits:** 5 Commits auf `main` (scaffold, branding, build-fixes, app-classes, ci-fixes)
+- ✅ **Initial-Commits:** 16 Commits auf `main` — Scaffold, Branding, App-Klassen, alle CI-Build-Fixes
+- ✅ **CI grün:** Lint + Unit Tests + Assemble Debug APK alle Success (Build dauert ~3 min)
 - ✅ **Signing-Keystore:** generiert, 4096-bit RSA, 10 000 Tage gültig
   - **SHA-256:** `98:F0:C7:0A:81:D6:20:44:A0:A0:47:E0:1D:47:5D:41:C4:68:5A:18:C5:DA:33:9D:4F:22:05:3B:E3:E0:92:F1`
   - Backup-Files unter `C:\Code\claude\hushd-secrets-backup\` — **bitte in Deinen Passwort-Manager schieben und dann das Backup-Verzeichnis löschen**
 - ✅ **GitHub-Environment-Secrets:** `SIGNING_KEYSTORE_BASE64`, `SIGNING_KEYSTORE_PASSWORD`, `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD` (im Environment `production`)
 - ✅ **Branding:** Logo (Wortmark `hushd` + Daemon-Punkt + Stopp-Unterstrich) in allen Mipmap-Dichten + Adaptive Icon + Themed Icon
 - ✅ **CI/CD:** Workflows `.github/workflows/ci.yml` und `release.yml` deployed, Dependabot aktiv, Release-Drafter konfiguriert
+- ✅ **Pre-Push-Hook:** `.githooks/pre-push` verhindert versehentliche Force-Pushes auf `main` (ersetzt Branch-Protection, die auf privaten Free-Tier-Repos nicht verfügbar ist)
+
+---
+
+> **Branch-Protection-Hinweis:** GitHub erlaubt Branch-Protection auf privaten Repos nur mit GitHub Pro / Team. Stattdessen läuft ein lokaler `pre-push`-Hook der versehentliche `git push --force` auf `main` blockt. Wenn Du später doch GitHub Pro hast, kannst Du die Branch-Protection serverseitig nachholen — der Hook kann dann drin bleiben als Defense-in-Depth.
 
 ---
 
@@ -51,6 +57,7 @@ Die Files in `C:\Code\claude\hushd-secrets-backup\` enthalten Deinen Signing-Key
 cd C:/Code/claude
 git clone https://github.com/Labushuya/hushd
 cd hushd
+./scripts/init-repo.sh  # konfiguriert lokale Git-Hooks (.githooks/)
 ```
 
 In Android Studio: **File → Open → C:\Code\claude\hushd** → Trust Project → Gradle Sync läuft an.
