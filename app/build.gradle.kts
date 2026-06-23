@@ -161,7 +161,10 @@ android {
     }
 
     androidResources {
-        generateLocaleConfig = true
+        // We ship a hand-written res/xml/locales_config.xml referenced by the manifest.
+        // Setting this to true would require resources.properties files in every values-* dir
+        // (see https://developer.android.com/r/studio-ui/build/automatic-per-app-languages).
+        generateLocaleConfig = false
     }
 
     // Reproducible-build levers (defense-in-depth; root build.gradle.kts also handles archive tasks)
