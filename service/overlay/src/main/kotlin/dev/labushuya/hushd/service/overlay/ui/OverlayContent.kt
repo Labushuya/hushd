@@ -281,10 +281,11 @@ private fun ErrorContent(state: State.Error, onClose: () -> Unit) {
             maxLines = 3,
             overflow = TextOverflow.Ellipsis,
         )
-        if (state.pkg != null) {
+        val pkg = state.pkg
+        if (pkg != null) {
             Spacer(Modifier.height(4.dp))
             Text(
-                text = state.pkg,
+                text = pkg,
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.White.copy(alpha = 0.5f),
                 maxLines = 1,
