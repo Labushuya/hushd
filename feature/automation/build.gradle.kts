@@ -26,6 +26,11 @@ dependencies {
     implementation(libs.bundles.compose)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    // hiltViewModel() in Compose requires hilt-navigation-compose
+    implementation(libs.hilt.navigation.compose)
+    // collectAsStateWithLifecycle() + lifecycle-aware ViewModel access
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)

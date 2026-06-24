@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.labushuya.hushd.core.automation.BulkAutostopEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,11 +38,15 @@ data class AppListUiState(
 
 @HiltViewModel
 class AppListViewModel @Inject constructor(
-    @ApplicationContext private val ctx: Context
+    @ApplicationContext private val ctx: Context,
+    private val engine: BulkAutostopEngine,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AppListUiState())
     val state: StateFlow<AppListUiState> = _state.asStateFlow()
+
+    /** Reflects the engine's run progress; UI can collect this to show an inline status. */
+    val engineState: StateFlow<BulkAutostopEngine.State> = engine.state
 
     init { reload() }
 
@@ -85,6 +90,12 @@ class AppListViewModel @Inject constructor(
 
     fun clearSelection() = _state.update { it.copy(selection = emptySet()) }
 
+    /**
+     * Returns the currently visible (filtered + searched) subset of [AppListUiState.apps].
+     * Exposed publicly so the UI can use it for display without re-deriving filter logic.
+     */
+    fun visibleApps(s: AppListUiState = _state.value): List<AppItem> = visible(s)
+
     private fun visible(s: AppListUiState): List<AppItem> =
         s.apps.asSequence()
             .filter { a ->
@@ -96,4 +107,29 @@ class AppListViewModel @Inject constructor(
             }
             .filter { if (s.query.isBlank()) true else it.label.contains(s.query, ignoreCase = true) || it.packageName.contains(s.query, ignoreCase = true) }
             .toList()
+
+    /**
+     * Kicks off a bulk autostop run for the currently selected packages.
+     *
+     * Preconditions (caller must verify before invoking):
+     *  1. [android.provider.Settings.canDrawOverlays] is true
+     *  2. Accessibility service is bound (check via AccessibilityManager)
+     *
+     * The [OverlayService][dev.labushuya.hushd.service.overlay.OverlayService] must be
+     * started by the caller before calling this method so the overlay window is visible
+     * during the run.
+     */
+    fun startBulkRun() {
+        val packages = _state.value.selection.toList()
+        if (packages.isEmpty()) return
+        engine.runFor(packages)
+    }
+
+    /**
+     * Cancels a running bulk autostop job. No-op when engine is idle.
+     */
+    fun cancelBulkRun() {
+        engine.requestCancel()
+    }
 }
+

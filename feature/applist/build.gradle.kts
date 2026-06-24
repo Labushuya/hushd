@@ -25,7 +25,16 @@ dependencies {
     implementation(libs.bundles.compose)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    // hiltViewModel() in Compose requires hilt-navigation-compose
+    implementation(libs.hilt.navigation.compose)
+    // collectAsStateWithLifecycle() + lifecycle-aware ViewModel access
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)
+    // App icon async loading via PackageManager (coil-compose 2.7.0, defined in libs.versions.toml)
+    implementation(libs.coil.compose)
+    // BulkAutostopEngine + selection wiring
+    implementation(projects.core.automation)
 }

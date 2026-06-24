@@ -35,6 +35,9 @@ workManager = "2.9.1"
 # Coroutines
 coroutines = "1.9.0"
 
+# Image loading
+coil = "2.7.0"
+
 # Logging
 timber = "5.0.1"
 
@@ -119,6 +122,9 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 
 # Logging
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
+
+# Image loading
+coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
 
 # Test — JUnit 5 (unit tests)
 junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit5" }

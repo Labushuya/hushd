@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -35,9 +36,15 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dagger.hilt.android.AndroidEntryPoint
 import dev.labushuya.hushd.core.automation.BulkAutostopEngine
 import dev.labushuya.hushd.service.overlay.ui.OverlayContent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
-import android.app.Service
 
 /**
  * Foreground Service (SPECIAL_USE), der ein TYPE_APPLICATION_OVERLAY-Fenster mit
@@ -59,6 +66,7 @@ class OverlayService :
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateController = SavedStateRegistryController.create(this)
     private val store = ViewModelStore()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override val lifecycle: Lifecycle get() = lifecycleRegistry
     override val savedStateRegistry: SavedStateRegistry get() = savedStateController.savedStateRegistry
@@ -79,6 +87,7 @@ class OverlayService :
         attachOverlay()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        observeEngineState()
         Timber.tag(TAG).i("OverlayService created")
     }
 
@@ -93,6 +102,7 @@ class OverlayService :
     override fun onDestroy() {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        serviceScope.cancel()
         composeView?.let { runCatching { windowManager.removeView(it) } }
         composeView = null
         store.clear()
@@ -132,6 +142,27 @@ class OverlayService :
         }
         windowManager.addView(cv, params)
         composeView = cv
+    }
+
+    /**
+     * Watches engine state on a background coroutine.
+     * When the engine settles back to [BulkAutostopEngine.State.Idle] after a run
+     * (i.e. the Done auto-dismiss fired or the user cancelled), stop this service
+     * so the overlay window is removed cleanly.
+     *
+     * We skip the initial Idle emission with [drop] to avoid immediately self-stopping
+     * before any run has started.
+     */
+    private fun observeEngineState() {
+        serviceScope.launch {
+            engine.state
+                .drop(1) // skip initial Idle
+                .filter { it is BulkAutostopEngine.State.Idle }
+                .collect {
+                    Timber.tag(TAG).i("Engine back to Idle — stopping OverlayService")
+                    stopSelf()
+                }
+        }
     }
 
     private fun startInForeground() {

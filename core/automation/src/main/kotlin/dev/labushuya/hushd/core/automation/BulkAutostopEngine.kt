@@ -17,6 +17,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -190,35 +193,59 @@ class BulkAutostopEngine @Inject constructor(
         inbox.emit(ev)
     }
 
+    /**
+     * Suspends until the inbox emits an event of type [T], or [timeoutMs] elapses.
+     *
+     * FIX: The previous implementation used `inbox.collect { return@collect }` which only exits
+     * the lambda, not the collect call — SharedFlow.collect() never returns naturally, so the
+     * coroutine always ran until the timeout even after matching an event.
+     * `filterIsInstance<T>().first()` short-circuits correctly on the first matching emission.
+     */
     private suspend inline fun <reified T : NodeEvent> awaitEvent(timeoutMs: Long): T? =
         withTimeoutOrNull(timeoutMs) {
-            var found: T? = null
-            inbox.collect { ev -> if (ev is T) { found = ev; return@collect } }
-            found
+            inbox.filterIsInstance<T>().first()
         }
 
+    /**
+     * Like [awaitEvent] but also applies [predicate] to the matched event.
+     *
+     * Uses `filter { it is T && predicate(it as T) }.first()` so the coroutine suspends cleanly
+     * and resumes as soon as a matching event arrives rather than burning the full timeout.
+     */
     private suspend inline fun <reified T : NodeEvent> awaitEventMatching(
         timeoutMs: Long, crossinline predicate: (T) -> Boolean
     ): T? = withTimeoutOrNull(timeoutMs) {
-        var found: T? = null
-        inbox.collect { ev -> if (ev is T && predicate(ev)) { found = ev; return@collect } }
-        found
+        @Suppress("UNCHECKED_CAST")
+        inbox.filter { it is T && predicate(it as T) }.first() as T
     }
 
     private enum class ClickOutcome { Clicked, NotFound, MaskedByMaster, Timeout }
 
+    /**
+     * Awaits a click-outcome event for [pkg].
+     *
+     * Also handles [NodeEvent.ToggleNotClickable] (which the previous impl silently ignored,
+     * causing every not-clickable case to burn the full 4 s timeout before returning Timeout).
+     */
     private suspend fun awaitClickOutcome(pkg: String, timeoutMs: Long): ClickOutcome =
         withTimeoutOrNull(timeoutMs) {
-            var out: ClickOutcome = ClickOutcome.Timeout
-            inbox.collect { ev ->
+            inbox.filter { ev ->
                 when (ev) {
-                    is NodeEvent.ToggleClicked -> if (ev.pkg == pkg) { out = ClickOutcome.Clicked; return@collect }
-                    is NodeEvent.ToggleNotFound -> if (ev.pkg == pkg) { out = ClickOutcome.NotFound; return@collect }
-                    is NodeEvent.ToggleDisabledByMaster -> if (ev.pkg == pkg) { out = ClickOutcome.MaskedByMaster; return@collect }
-                    is NodeEvent.WatchdogTimeout -> { out = ClickOutcome.Timeout; return@collect }
-                    else -> Unit
+                    is NodeEvent.ToggleClicked -> ev.pkg == pkg
+                    is NodeEvent.ToggleNotFound -> ev.pkg == pkg
+                    is NodeEvent.ToggleNotClickable -> ev.pkg == pkg
+                    is NodeEvent.ToggleDisabledByMaster -> ev.pkg == pkg
+                    is NodeEvent.WatchdogTimeout -> true
+                    else -> false
+                }
+            }.first().let { ev ->
+                when (ev) {
+                    is NodeEvent.ToggleClicked -> ClickOutcome.Clicked
+                    is NodeEvent.ToggleNotFound -> ClickOutcome.NotFound
+                    is NodeEvent.ToggleNotClickable -> ClickOutcome.NotFound  // treat as not found
+                    is NodeEvent.ToggleDisabledByMaster -> ClickOutcome.MaskedByMaster
+                    else -> ClickOutcome.Timeout
                 }
             }
-            out
         } ?: ClickOutcome.Timeout
 }
