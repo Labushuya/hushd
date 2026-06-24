@@ -43,18 +43,24 @@ private val BrandRed = Color(0xFFEF4444)
 private val DarkSurface = Color(0xFF0F172A)
 
 /** Auto-dismiss delay after State.Done */
-private const val DONE_DISMISS_MS = 3_000L
+private const val DONE_DISMISS_MS = 2_500L
 
 /**
  * Floating overlay card that reflects [BulkAutostopEngine.State] in real-time.
  *
  * Shows nothing (empty [Box]) when state is [State.Idle] or [State.PermissionCheck].
- * Auto-dismisses after [DONE_DISMISS_MS] when state reaches [State.Done] by calling [onCancel].
+ * Auto-dismisses after [DONE_DISMISS_MS] when state reaches [State.Done] by calling [onDismiss].
+ *
+ * @param onCancel Called when the user taps "Abbrechen". The caller (OverlayService) should
+ *   invoke [BulkAutostopEngine.cancel] which resets state to Idle and triggers service shutdown.
+ * @param onDismiss Called when the overlay should auto-close (after Done delay, or when the
+ *   user taps "Schließen" on a Done/Error card). The caller should invoke stopSelf().
  */
 @Composable
 fun OverlayContent(
     state: State,
     onCancel: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val visible = state !is State.Idle && state !is State.PermissionCheck
     AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
@@ -74,9 +80,9 @@ fun OverlayContent(
                 is State.Verifying,
                 is State.Cooldown -> RunningContent(state = state, onCancel = onCancel)
 
-                is State.Done -> DoneContent(state = state, onDismiss = onCancel)
+                is State.Done -> DoneContent(state = state, onDismiss = onDismiss)
 
-                is State.Error -> ErrorContent(state = state, onClose = onCancel)
+                is State.Error -> ErrorContent(state = state, onClose = onDismiss)
 
                 // Idle / PermissionCheck handled by AnimatedVisibility above
                 else -> Unit
@@ -189,8 +195,9 @@ private fun RunningContent(state: State, onCancel: () -> Unit) {
 
 @Composable
 private fun DoneContent(state: State.Done, onDismiss: () -> Unit) {
-    // Auto-dismiss after 3 seconds
-    LaunchedEffect(Unit) {
+    // Auto-dismiss after DONE_DISMISS_MS. Keyed on state so if a new Done arrives
+    // (edge case: two runs back-to-back) the effect restarts.
+    LaunchedEffect(state) {
         delay(DONE_DISMISS_MS)
         onDismiss()
     }
@@ -241,7 +248,7 @@ private fun DoneContent(state: State.Done, onDismiss: () -> Unit) {
                     )
                 }
             }
-            // Manual dismiss for error list — also useful when auto-dismiss fires too quickly
+            // Manual dismiss — also useful when the auto-dismiss fires too quickly for reading.
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) {
                     Text("Schließen", color = BrandRed)

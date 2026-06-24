@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package dev.labushuya.hushd.feature.applist
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +24,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,8 +35,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -42,16 +47,23 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,14 +83,19 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.foundation.Image
 
 // Brand accent matches HushdTheme: Color(0xFFEF4444)
 private val BrandRed = Color(0xFFEF4444)
+private val AutostartEnabledContainer = Color(0xFFFFEDED)
+private val AutostartEnabledContent = Color(0xFFB91C1C)
+private val AutostartDisabledContainer = Color(0xFFDCFCE7)
+private val AutostartDisabledContent = Color(0xFF15803D)
+private val AutostartUnknownContainer = Color(0xFFE5E7EB)
+private val AutostartUnknownContent = Color(0xFF6B7280)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,30 +105,25 @@ fun AppListScreen(
     onStartSingle: (packageName: String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
 
-    // Re-derive visible list in UI (visible() is private in VM)
-    val visibleApps = remember(state.apps, state.filter, state.query) {
-        state.apps
-            .asSequence()
-            .filter { app ->
-                when (state.filter) {
-                    AppFilter.ALL -> true
-                    AppFilter.USER_ONLY -> !app.isSystemApp
-                    AppFilter.SYSTEM_ONLY -> app.isSystemApp
-                }
-            }
-            .filter { app ->
-                if (state.query.isBlank()) true
-                else app.label.contains(state.query, ignoreCase = true) ||
-                    app.packageName.contains(state.query, ignoreCase = true)
-            }
-            .toList()
+    val visibleApps = remember(state.apps, state.activeTab, state.statusFilter, state.query) {
+        viewModel.visibleApps(state)
     }
+
+    val userAppCount = remember(state.apps) { state.apps.count { !it.isSystemApp } }
+    val systemAppCount = remember(state.apps) { state.apps.count { it.isSystemApp } }
+
+    val allVisibleSelected = visibleApps.isNotEmpty() &&
+        visibleApps.all { state.selection.contains(it.packageName) }
 
     var searchVisible by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    var selectedAppForSheet by remember { mutableStateOf<AppItem?>(null) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val hasSelection = state.selection.isNotEmpty()
 
@@ -156,7 +168,7 @@ fun AppListScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp)
                             .focusRequester(focusRequester),
-                        placeholder = { Text("Apps suchen…") },
+                        placeholder = { Text("Apps suchen...") },
                         leadingIcon = {
                             Icon(Icons.Default.Search, contentDescription = null)
                         },
@@ -169,10 +181,53 @@ fun AppListScreen(
                         shape = RoundedCornerShape(12.dp),
                     )
                 }
-                FilterChipRow(
-                    current = state.filter,
-                    onSelect = { viewModel.setFilter(it) },
+
+                // Tab row: User-Apps / System-Apps
+                TabRow(
+                    selectedTabIndex = if (state.activeTab == AppTab.USER) 0 else 1,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                ) {
+                    Tab(
+                        selected = state.activeTab == AppTab.USER,
+                        onClick = { viewModel.setTab(AppTab.USER) },
+                        text = { Text("User-Apps ($userAppCount)") },
+                    )
+                    Tab(
+                        selected = state.activeTab == AppTab.SYSTEM,
+                        onClick = { viewModel.setTab(AppTab.SYSTEM) },
+                        text = { Text("System-Apps ($systemAppCount)") },
+                    )
+                }
+
+                // Sub-filter chips
+                StatusFilterChipRow(
+                    current = state.statusFilter,
+                    onSelect = { viewModel.setStatusFilter(it) },
                 )
+
+                // Header row: select-all checkbox + selection counter
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = allVisibleSelected,
+                        onCheckedChange = { checked ->
+                            if (checked) viewModel.selectAllVisible() else viewModel.clearSelection()
+                        },
+                    )
+                    Text(
+                        text = if (state.selection.isEmpty()) "Alle auswaehlen" else "${state.selection.size} ausgewaehlt",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(start = 4.dp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = if (state.selection.isEmpty()) 0.6f else 1f,
+                        ),
+                    )
+                }
             }
         },
         bottomBar = {
@@ -185,9 +240,6 @@ fun AppListScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                     tonalElevation = 8.dp,
                 ) {
-                    TextButton(onClick = { viewModel.selectAllVisible() }) {
-                        Text("Alle waehlen")
-                    }
                     TextButton(onClick = { viewModel.clearSelection() }) {
                         Text("Abwaehlen")
                     }
@@ -195,9 +247,7 @@ fun AppListScreen(
                     Button(
                         onClick = { onStartBulk(state.selection.toList()) },
                         enabled = hasSelection,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = BrandRed,
-                        ),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
                         modifier = Modifier.padding(end = 8.dp),
                     ) {
                         Text("Autostart deaktivieren (${state.selection.size})")
@@ -247,20 +297,75 @@ fun AppListScreen(
                         AppRow(
                             app = app,
                             isSelected = state.selection.contains(app.packageName),
-                            onToggleSelection = { viewModel.toggleSelection(app.packageName) },
-                            onLongPress = { onStartSingle(app.packageName) },
+                            onCheckboxToggle = { viewModel.toggleSelection(app.packageName) },
+                            onRowClick = { selectedAppForSheet = app },
                         )
                     }
                 }
             }
         }
     }
+
+    // Modal bottom sheet for single app actions
+    if (selectedAppForSheet != null) {
+        val sheetApp = selectedAppForSheet!!
+        ModalBottomSheet(
+            onDismissRequest = { selectedAppForSheet = null },
+            sheetState = sheetState,
+        ) {
+            ListItem(
+                headlineContent = { Text("Autostart deaktivieren") },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = BrandRed,
+                    )
+                },
+                modifier = Modifier.clickable {
+                    onStartSingle(sheetApp.packageName)
+                    selectedAppForSheet = null
+                },
+            )
+            ListItem(
+                headlineContent = { Text("App-Info oeffnen") },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.Android,
+                        contentDescription = null,
+                    )
+                },
+                modifier = Modifier.clickable {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", sheetApp.packageName, null)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    ctx.startActivity(intent)
+                    selectedAppForSheet = null
+                },
+            )
+            ListItem(
+                headlineContent = { Text("Abbrechen") },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                    )
+                },
+                modifier = Modifier.clickable { selectedAppForSheet = null },
+            )
+        }
+    }
 }
 
+// ---------------------------------------------------------------------------
+// Status filter chip row
+// ---------------------------------------------------------------------------
+
 @Composable
-private fun FilterChipRow(
-    current: AppFilter,
-    onSelect: (AppFilter) -> Unit,
+private fun StatusFilterChipRow(
+    current: StatusFilter,
+    onSelect: (StatusFilter) -> Unit,
 ) {
     LazyRow(
         modifier = Modifier
@@ -270,94 +375,98 @@ private fun FilterChipRow(
     ) {
         item {
             FilterChip(
-                selected = current == AppFilter.ALL,
-                onClick = { onSelect(AppFilter.ALL) },
+                selected = current == StatusFilter.ALL,
+                onClick = { onSelect(StatusFilter.ALL) },
                 label = { Text("Alle") },
             )
         }
         item {
             FilterChip(
-                selected = current == AppFilter.USER_ONLY,
-                onClick = { onSelect(AppFilter.USER_ONLY) },
-                label = { Text("Nur User-Apps") },
+                selected = current == StatusFilter.ENABLED_ONLY,
+                onClick = { onSelect(StatusFilter.ENABLED_ONLY) },
+                label = { Text("Autostart AN") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = AutostartEnabledContainer,
+                    selectedLabelColor = AutostartEnabledContent,
+                ),
             )
         }
         item {
             FilterChip(
-                selected = current == AppFilter.SYSTEM_ONLY,
-                onClick = { onSelect(AppFilter.SYSTEM_ONLY) },
-                label = { Text("System-Apps") },
+                selected = current == StatusFilter.DISABLED_ONLY,
+                onClick = { onSelect(StatusFilter.DISABLED_ONLY) },
+                label = { Text("Autostart AUS") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = AutostartDisabledContainer,
+                    selectedLabelColor = AutostartDisabledContent,
+                ),
             )
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+// ---------------------------------------------------------------------------
+// App row
+// ---------------------------------------------------------------------------
+
 @Composable
 private fun AppRow(
     app: AppItem,
     isSelected: Boolean,
-    onToggleSelection: () -> Unit,
-    onLongPress: () -> Unit,
+    onCheckboxToggle: () -> Unit,
+    onRowClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(
-                onClick = onToggleSelection,
-                onLongClick = onLongPress,
-            )
+            .clickable(onClick = onRowClick)
             .background(
                 if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                 else Color.Transparent,
             )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AppIcon(packageName = app.packageName)
+        Checkbox(
+            checked = isSelected,
+            onCheckedChange = { onCheckboxToggle() },
+        )
+
+        Spacer(Modifier.width(4.dp))
+
+        AppIconImage(packageName = app.packageName)
 
         Spacer(Modifier.width(12.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = app.label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (app.isSystemApp) {
-                    Spacer(Modifier.width(6.dp))
-                    SystemBadge()
-                }
-            }
+            Text(
+                text = app.label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Text(
                 text = app.packageName,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
                 maxLines = 1,
-                fontSize = 10.sp,
+                overflow = TextOverflow.Ellipsis,
             )
-            if (app.versionName != null) {
-                Text(
-                    text = "v${app.versionName}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                    fontSize = 10.sp,
-                )
-            }
         }
 
-        Checkbox(
-            checked = isSelected,
-            onCheckedChange = { onToggleSelection() },
-        )
+        Spacer(Modifier.width(8.dp))
+
+        AutostartStatusChip(status = app.autostartStatus)
     }
 }
 
+// ---------------------------------------------------------------------------
+// App icon — loads from PackageManager, falls back to Icons.Default.Android
+// ---------------------------------------------------------------------------
+
 @Composable
-private fun AppIcon(packageName: String) {
+private fun AppIconImage(packageName: String) {
     val pm = LocalContext.current.packageManager
     val bitmap: ImageBitmap? = remember(packageName) {
         runCatching { pm.getApplicationIcon(packageName) }
@@ -374,7 +483,6 @@ private fun AppIcon(packageName: String) {
                 .clip(CircleShape),
         )
     } else {
-        // Fallback: colored circle with first letter of package name
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -382,42 +490,76 @@ private fun AppIcon(packageName: String) {
                 .background(MaterialTheme.colorScheme.secondaryContainer),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = packageName.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            Icon(
+                imageVector = Icons.Default.Android,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(24.dp),
             )
         }
     }
 }
 
+// ---------------------------------------------------------------------------
+// Autostart status chip
+// ---------------------------------------------------------------------------
+
 @Composable
-private fun SystemBadge() {
-    Surface(
-        shape = RoundedCornerShape(4.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        tonalElevation = 0.dp,
-    ) {
-        Text(
-            text = "SYS",
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            fontSize = 9.sp,
+private fun AutostartStatusChip(status: AutostartStatus) {
+    when (status) {
+        AutostartStatus.ENABLED -> SuggestionChip(
+            onClick = {},
+            label = { Text("AN", style = MaterialTheme.typography.labelSmall) },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Autostart aktiv",
+                    modifier = Modifier.size(14.dp),
+                )
+            },
+            colors = SuggestionChipDefaults.suggestionChipColors(
+                containerColor = AutostartEnabledContainer,
+                labelColor = AutostartEnabledContent,
+                iconContentColor = AutostartEnabledContent,
+            ),
+        )
+
+        AutostartStatus.DISABLED -> SuggestionChip(
+            onClick = {},
+            label = { Text("AUS", style = MaterialTheme.typography.labelSmall) },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Autostart deaktiviert",
+                    modifier = Modifier.size(14.dp),
+                )
+            },
+            colors = SuggestionChipDefaults.suggestionChipColors(
+                containerColor = AutostartDisabledContainer,
+                labelColor = AutostartDisabledContent,
+                iconContentColor = AutostartDisabledContent,
+            ),
+        )
+
+        AutostartStatus.UNKNOWN -> SuggestionChip(
+            onClick = {},
+            label = { Text("?", style = MaterialTheme.typography.labelSmall) },
+            colors = SuggestionChipDefaults.suggestionChipColors(
+                containerColor = AutostartUnknownContainer,
+                labelColor = AutostartUnknownContent,
+            ),
         )
     }
 }
 
 // ---------------------------------------------------------------------------
-// Drawable -> ImageBitmap conversion (no Coil in catalog — pure Android API)
+// Drawable -> ImageBitmap conversion (no Coil — pure Android API)
 // ---------------------------------------------------------------------------
 
 private fun Drawable.toImageBitmap(): ImageBitmap {
     val bitmap = when (this) {
         is BitmapDrawable -> this.bitmap
         is AdaptiveIconDrawable -> {
-            // AdaptiveIconDrawable requires explicit rendering onto a canvas
             val bmp = Bitmap.createBitmap(
                 intrinsicWidth.coerceAtLeast(1),
                 intrinsicHeight.coerceAtLeast(1),

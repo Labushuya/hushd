@@ -1,41 +1,22 @@
 {
   "profileId": "honor-magicos",
-  "toggleLabels": [
-    "Auto-launch",
-    "Auto launch",
-    "Autostart",
-    "Auto-Start",
-    "Automatischer Start",
-    "Manage automatically",
-    "Automatisch verwalten",
-    "自启动",
-    "开机自启",
-    "应用自启动"
+  "batteryDetailActivityCandidates": [
+    "com.hihonor.systemmanager/.appmanage.ui.BatteryNormalAppDetailActivity",
+    "com.hihonor.systemmanager/.appmanage.ui.BatteryAppDetailActivity",
+    "com.hihonor.systemmanager/.appmanage.ui.AppPowerConsumptionActivity"
   ],
-  "resourceIdFallbacks": [
-    "com.hihonor.systemmanager:id/auto_start_switch",
-    "com.hihonor.systemmanager:id/switchWidget",
-    "com.hihonor.systemmanager:id/switch_widget",
-    "com.huawei.systemmanager:id/auto_start_switch"
-  ],
-  "screenSignaturePatterns": [
-    "StartupNormalAppListActivity",
-    "StartupAppControlActivity",
-    "AppManageMainActivity",
-    "ProtectActivity",
-    "MainScreenActivity",
-    "com.hihonor.systemmanager",
-    "com.huawei.systemmanager"
-  ],
-  "settingsActivityFqns": [
-    "com.hihonor.systemmanager/.appmanage.ui.AppManageMainActivity",
-    "com.hihonor.systemmanager/.startupmgr.ui.StartupNormalAppListActivity",
-    "com.hihonor.systemmanager/.appcontrol.activity.StartupAppControlActivity",
-    "com.hihonor.systemmanager/.optimize.process.ProtectActivity",
-    "com.huawei.systemmanager/.startupmgr.ui.StartupNormalAppListActivity",
-    "com.huawei.systemmanager/.optimize.process.ProtectActivity",
-    "com.hihonor.systemmanager/.mainscreen.MainScreenActivity"
-  ],
-  "cooldownMs": 350,
-  "maxRetries": 3
+  "startSettingsRowLabels": ["Starteinstellungen", "Launch settings", "Start settings", "启动管理"],
+  "masterToggleLabels": ["Automatisch verwalten", "Manage automatically", "自动管理"],
+  "autoStartLabels": ["Auto-Start", "Auto-start", "Autostart", "自启动"],
+  "secondaryStartLabels": ["Sekundärer Start", "Secondary launch", "被其他应用启动"],
+  "backgroundRunLabels": ["Im Hintergrund ausführen", "Run in background", "后台运行"],
+  "okButtonLabels": ["OK", "Ok", "确定"],
+  "screenTitleSignatures": ["Details zur Akkunutzung", "Battery usage details", "BatteryNormalAppDetailActivity", "BatteryAppDetailActivity"],
+  "dialogTitleSignatures": ["Starteinstellungen", "Launch settings"],
+  "screenSignaturePatterns": ["BatteryNormalAppDetailActivity", "BatteryAppDetailActivity", "AppPowerConsumptionActivity", "com.hihonor.systemmanager"],
+  "disableSecondaryStart": true,
+  "disableBackgroundRun": true,
+  "cooldownMs": 500,
+  "maxRetries": 3,
+  "masterToggleOffDelayMs": 400
 }

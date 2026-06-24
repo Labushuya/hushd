@@ -44,6 +44,12 @@ sealed interface NodeEvent {
     data class VerifyResult(val pkg: String, val isOff: Boolean) : NodeEvent
     data object WatchdogTimeout : NodeEvent
     data object Interrupted : NodeEvent
+    // MagicOS battery-detail dialog flow events
+    data class StartSettingsRowClicked(val pkg: String) : NodeEvent
+    data class DialogAppeared(val pkg: String) : NodeEvent
+    data class MasterToggleDisabled(val pkg: String) : NodeEvent
+    /** Emitted when all dialog toggles are disabled and OK was tapped. Treated as success. */
+    data class AllTogglesDisabled(val pkg: String) : NodeEvent
 }
 
 sealed interface AutomationError {
@@ -90,7 +96,7 @@ class BulkAutostopEngine @Inject constructor(
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var serviceRef: WeakReference<A11yServiceHandle>? = null
-    private var runJob: Job? = null
+    private var engineJob: Job? = null
     @Volatile private var cancelRequested: Boolean = false
 
     fun attachService(svc: A11yServiceHandle) {
@@ -106,6 +112,21 @@ class BulkAutostopEngine @Inject constructor(
         serviceRef = null
     }
 
+    /**
+     * Cancels any running engine job and resets state to Idle immediately.
+     * The OverlayService observes Idle and removes itself.
+     */
+    fun cancel() {
+        engineJob?.cancel()
+        engineJob = null
+        cancelRequested = false
+        _state.value = State.Idle
+    }
+
+    /**
+     * Signals the running loop to stop at the next iteration boundary.
+     * Prefer [cancel] when an immediate stop is needed (e.g. user taps Abbrechen).
+     */
     fun requestCancel() {
         cancelRequested = true
     }
@@ -115,9 +136,9 @@ class BulkAutostopEngine @Inject constructor(
      * Single-Operation-Lock via Mutex.
      */
     fun runFor(packages: List<String>): Flow<State> {
-        runJob?.cancel()
+        engineJob?.cancel()
         cancelRequested = false
-        runJob = scope.launch {
+        engineJob = scope.launch {
             mutex.withLock { runInternal(packages) }
         }
         return state
@@ -232,6 +253,7 @@ class BulkAutostopEngine @Inject constructor(
             inbox.filter { ev ->
                 when (ev) {
                     is NodeEvent.ToggleClicked -> ev.pkg == pkg
+                    is NodeEvent.AllTogglesDisabled -> ev.pkg == pkg
                     is NodeEvent.ToggleNotFound -> ev.pkg == pkg
                     is NodeEvent.ToggleNotClickable -> ev.pkg == pkg
                     is NodeEvent.ToggleDisabledByMaster -> ev.pkg == pkg
@@ -241,6 +263,8 @@ class BulkAutostopEngine @Inject constructor(
             }.first().let { ev ->
                 when (ev) {
                     is NodeEvent.ToggleClicked -> ClickOutcome.Clicked
+                    // AllTogglesDisabled = full dialog flow succeeded → treat as Clicked
+                    is NodeEvent.AllTogglesDisabled -> ClickOutcome.Clicked
                     is NodeEvent.ToggleNotFound -> ClickOutcome.NotFound
                     is NodeEvent.ToggleNotClickable -> ClickOutcome.NotFound  // treat as not found
                     is NodeEvent.ToggleDisabledByMaster -> ClickOutcome.MaskedByMaster

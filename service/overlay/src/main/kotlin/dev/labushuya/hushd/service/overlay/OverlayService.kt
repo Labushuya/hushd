@@ -40,8 +40,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -73,7 +72,10 @@ class OverlayService :
     override val viewModelStore: ViewModelStore get() = store
 
     private lateinit var windowManager: WindowManager
-    private var composeView: ComposeView? = null
+    private var overlayView: ComposeView? = null
+
+    /** Guards against double-remove which throws an exception from WindowManager. */
+    private var viewAdded = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -93,6 +95,7 @@ class OverlayService :
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            engine.cancel()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -103,8 +106,7 @@ class OverlayService :
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         serviceScope.cancel()
-        composeView?.let { runCatching { windowManager.removeView(it) } }
-        composeView = null
+        removeOverlayView()
         store.clear()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         super.onDestroy()
@@ -112,7 +114,8 @@ class OverlayService :
 
     private fun attachOverlay() {
         val cv = ComposeView(this).apply {
-            // STOLPERFALLE: ViewTree-Owners MÜSSEN vor setContent gesetzt sein.
+            // STOLPERFALLE: ViewTree-Owners MÜSSEN vor setContent gesetzt sein,
+            // sonst crasht Compose mit "ViewTreeLifecycleOwner not found".
             setViewTreeLifecycleOwner(this@OverlayService)
             setViewTreeViewModelStoreOwner(this@OverlayService)
             setViewTreeSavedStateRegistryOwner(this@OverlayService)
@@ -122,7 +125,17 @@ class OverlayService :
                         val state by engine.state.collectAsState()
                         OverlayContent(
                             state = state,
-                            onCancel = { engine.requestCancel() }
+                            onCancel = {
+                                // cancel() resets state to Idle → observeEngineState()
+                                // picks up the Idle emission and calls stopSelf().
+                                engine.cancel()
+                            },
+                            onDismiss = {
+                                // Called by OverlayContent after the auto-dismiss delay
+                                // (State.Done). The service stops itself which triggers
+                                // onDestroy → removeOverlayView().
+                                stopSelf()
+                            },
                         )
                     }
                 }
@@ -141,27 +154,66 @@ class OverlayService :
             y = (resources.displayMetrics.density * 64).toInt()
         }
         windowManager.addView(cv, params)
-        composeView = cv
+        overlayView = cv
+        viewAdded = true
+    }
+
+    /**
+     * Removes the overlay window safely. Idempotent — safe to call multiple times.
+     */
+    private fun removeOverlayView() {
+        if (viewAdded) {
+            try {
+                windowManager.removeView(overlayView)
+            } catch (_: Exception) {
+                // View may already be detached (e.g. process kill race); ignore.
+            }
+            viewAdded = false
+        }
+        overlayView = null
     }
 
     /**
      * Watches engine state on a background coroutine.
-     * When the engine settles back to [BulkAutostopEngine.State.Idle] after a run
-     * (i.e. the Done auto-dismiss fired or the user cancelled), stop this service
-     * so the overlay window is removed cleanly.
      *
-     * We skip the initial Idle emission with [drop] to avoid immediately self-stopping
+     * - [BulkAutostopEngine.State.Idle]: Engine was cancelled → remove overlay immediately.
+     * - [BulkAutostopEngine.State.Done] / [BulkAutostopEngine.State.Error]: Automation finished
+     *   or errored. The OverlayContent handles the 2500 ms auto-dismiss for Done by calling
+     *   [onDismiss] → stopSelf(). For Error we add a safety 2500 ms fallback here so the
+     *   service always stops even if OverlayContent's close button is never tapped.
+     *
+     * We skip the initial Idle emission with a flag to avoid immediately self-stopping
      * before any run has started.
      */
     private fun observeEngineState() {
         serviceScope.launch {
-            engine.state
-                .drop(1) // skip initial Idle
-                .filter { it is BulkAutostopEngine.State.Idle }
-                .collect {
-                    Timber.tag(TAG).i("Engine back to Idle — stopping OverlayService")
-                    stopSelf()
+            var seenNonIdle = false
+            engine.state.collect { state ->
+                when (state) {
+                    is BulkAutostopEngine.State.Idle -> {
+                        if (seenNonIdle) {
+                            Timber.tag(TAG).i("Engine back to Idle — stopping OverlayService")
+                            stopSelf()
+                        }
+                    }
+                    is BulkAutostopEngine.State.Done -> {
+                        seenNonIdle = true
+                        // OverlayContent will call onDismiss → stopSelf() after 2500 ms.
+                        // This is a safety net: if the view is somehow gone, stop after 3 s.
+                        delay(3_000)
+                        Timber.tag(TAG).i("Done safety timeout — stopping OverlayService")
+                        stopSelf()
+                    }
+                    is BulkAutostopEngine.State.Error -> {
+                        seenNonIdle = true
+                        // Show the error briefly, then stop automatically.
+                        delay(2_500)
+                        Timber.tag(TAG).i("Error auto-dismiss — stopping OverlayService")
+                        stopSelf()
+                    }
+                    else -> seenNonIdle = true
                 }
+            }
         }
     }
 

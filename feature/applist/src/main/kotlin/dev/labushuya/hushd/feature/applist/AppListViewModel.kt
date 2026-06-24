@@ -18,22 +18,32 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
+enum class AutostartStatus { ENABLED, DISABLED, UNKNOWN }
+
+enum class AppTab { USER, SYSTEM }
+
+enum class StatusFilter { ALL, ENABLED_ONLY, DISABLED_ONLY }
+
 data class AppItem(
     val packageName: String,
     val label: String,
     val isSystemApp: Boolean,
     val versionName: String?,
-    val versionCode: Long
+    val versionCode: Long,
+    val autostartStatus: AutostartStatus = AutostartStatus.UNKNOWN,
 )
 
+/** Kept for backward compat — no longer drives the tab UI but may still be referenced externally. */
 enum class AppFilter { ALL, USER_ONLY, SYSTEM_ONLY }
 
 data class AppListUiState(
     val isLoading: Boolean = false,
     val apps: List<AppItem> = emptyList(),
     val filter: AppFilter = AppFilter.USER_ONLY,
+    val activeTab: AppTab = AppTab.USER,
+    val statusFilter: StatusFilter = StatusFilter.ALL,
     val selection: Set<String> = emptySet(),
-    val query: String = ""
+    val query: String = "",
 )
 
 @HiltViewModel
@@ -72,13 +82,24 @@ class AppListViewModel @Inject constructor(
                 versionCode = runCatching {
                     @Suppress("DEPRECATION")
                     pm.getPackageInfo(info.packageName, 0).longVersionCode
-                }.getOrDefault(0L)
+                }.getOrDefault(0L),
+                autostartStatus = AutostartStatus.UNKNOWN,
             )
         }.sortedBy { it.label.lowercase() }
     }
 
+    // ---- Tab / filter -------------------------------------------------------
+
+    fun setTab(tab: AppTab) = _state.update { it.copy(activeTab = tab, selection = emptySet()) }
+
+    fun setStatusFilter(f: StatusFilter) = _state.update { it.copy(statusFilter = f) }
+
+    /** Legacy filter setter — kept so existing call-sites don't break. */
     fun setFilter(f: AppFilter) = _state.update { it.copy(filter = f) }
+
     fun setQuery(q: String) = _state.update { it.copy(query = q) }
+
+    // ---- Selection ----------------------------------------------------------
 
     fun toggleSelection(pkg: String) = _state.update { s ->
         s.copy(selection = if (s.selection.contains(pkg)) s.selection - pkg else s.selection + pkg)
@@ -90,6 +111,17 @@ class AppListViewModel @Inject constructor(
 
     fun clearSelection() = _state.update { it.copy(selection = emptySet()) }
 
+    // ---- Autostart status ---------------------------------------------------
+
+    fun updateAutostartStatus(pkg: String, status: AutostartStatus) = _state.update { s ->
+        val updatedApps = s.apps.map { app ->
+            if (app.packageName == pkg) app.copy(autostartStatus = status) else app
+        }
+        s.copy(apps = updatedApps)
+    }
+
+    // ---- Visibility ---------------------------------------------------------
+
     /**
      * Returns the currently visible (filtered + searched) subset of [AppListUiState.apps].
      * Exposed publicly so the UI can use it for display without re-deriving filter logic.
@@ -99,14 +131,26 @@ class AppListViewModel @Inject constructor(
     private fun visible(s: AppListUiState): List<AppItem> =
         s.apps.asSequence()
             .filter { a ->
-                when (s.filter) {
-                    AppFilter.ALL -> true
-                    AppFilter.USER_ONLY -> !a.isSystemApp
-                    AppFilter.SYSTEM_ONLY -> a.isSystemApp
+                when (s.activeTab) {
+                    AppTab.USER -> !a.isSystemApp
+                    AppTab.SYSTEM -> a.isSystemApp
                 }
             }
-            .filter { if (s.query.isBlank()) true else it.label.contains(s.query, ignoreCase = true) || it.packageName.contains(s.query, ignoreCase = true) }
+            .filter { a ->
+                when (s.statusFilter) {
+                    StatusFilter.ALL -> true
+                    StatusFilter.ENABLED_ONLY -> a.autostartStatus == AutostartStatus.ENABLED
+                    StatusFilter.DISABLED_ONLY -> a.autostartStatus == AutostartStatus.DISABLED
+                }
+            }
+            .filter { a ->
+                if (s.query.isBlank()) true
+                else a.label.contains(s.query, ignoreCase = true) ||
+                    a.packageName.contains(s.query, ignoreCase = true)
+            }
             .toList()
+
+    // ---- Engine -------------------------------------------------------------
 
     /**
      * Kicks off a bulk autostop run for the currently selected packages.
@@ -132,4 +176,3 @@ class AppListViewModel @Inject constructor(
         engine.requestCancel()
     }
 }
-
