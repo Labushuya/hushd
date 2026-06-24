@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-24
+
+### Fixed (critical)
+- MagicOS navigation now opens Battery > App detail screen (not App-Info)
+- Implements 4-toggle dialog flow: Automatisch verwalten + Auto-Start + Sekundärer Start + Im Hintergrund ausführen + OK
+- Overlay closes correctly after cancel and after automation completes
+
+### Changed
+- AppList: header select-all checkbox, AutostartStatus badge per app, User/System tabs, status sub-filter, single-app bottom sheet
+
 ## [0.2.0] - 2026-06-24
 
 ### Added
