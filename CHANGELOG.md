@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-25
+
+### Fixed (critical)
+- MagicOS: open HwPowerManagerActivity (battery list), navigate to app, click "Starteinstellungen"
+- Toggle clicks via verified ResourceIDs: switch_auto_management, switch_startup,
+  switch_secondary_launch, switch_background_running, android:id/button1 (OK)
+- Overlay now correctly dismisses on cancel and after completion
+- AppList: filter chips now work correctly (show "Noch nicht deaktiviert" / "Deaktiviert")
+- AutostartStatus badge only shown when status is known (ENABLED=red, DISABLED=green, UNKNOWN=hidden)
+
 ## [0.3.0] - 2026-06-24
 
 ### Fixed (critical)
