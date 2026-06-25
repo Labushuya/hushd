@@ -2,7 +2,7 @@
 package dev.labushuya.hushd.core.automation
 
 import android.content.Context
-import android.content.Intent
+import android.content.pm.PackageManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.labushuya.hushd.core.automation.oem.OemProfileResolver
 import kotlinx.coroutines.CoroutineScope
@@ -153,6 +153,21 @@ class BulkAutostopEngine @Inject constructor(
         val failed = mutableListOf<Pair<String, AutomationError>>()
         var ok = 0
 
+        // Open the battery list once — the service navigates from there per-package
+        val listIntent = runCatching {
+            profile.openBatteryListScreen(ctx)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }.getOrElse {
+            Timber.tag(TAG).e(it, "Failed to build battery list intent")
+            _state.value = State.Error(null, AutomationError.SettingsScreenNotResolved)
+            return
+        }
+        runCatching { ctx.startActivity(listIntent) }.onFailure {
+            Timber.tag(TAG).e(it, "Failed to launch battery list activity")
+            _state.value = State.Error(null, AutomationError.SettingsScreenNotResolved)
+            return
+        }
+
         for ((i, pkg) in packages.withIndex()) {
             if (cancelRequested) {
                 _state.value = State.Error(pkg, AutomationError.UserCancelled); break
@@ -166,45 +181,60 @@ class BulkAutostopEngine @Inject constructor(
         _state.value = State.Done(ok = ok, failed = failed)
     }
 
-    private suspend fun processOne(pkg: String, profile: dev.labushuya.hushd.core.automation.oem.OemProfile): AutomationError? {
-        // 1) Settings öffnen
+    private suspend fun processOne(
+        pkg: String,
+        profile: dev.labushuya.hushd.core.automation.oem.OemProfile
+    ): AutomationError? {
+        val appLabel = resolveAppLabel(pkg)
+
         for (attempt in 0 until profile.maxRetries()) {
             _state.value = State.OpeningSettings(pkg, attempt)
-            val intent: Intent = profile.openSettingsForPackage(ctx, pkg)
-                ?: return AutomationError.SettingsScreenNotResolved
-            runCatching {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                ctx.startActivity(intent)
-            }.onFailure { return AutomationError.SettingsScreenNotResolved }
 
-            // 2) Warten auf ScreenReady (via NodeEvent)
-            _state.value = State.AwaitingToggle(pkg)
-            val ready = awaitEvent<NodeEvent.ScreenReady>(timeoutMs = profile.screenReadyTimeoutMs())
-            if (ready == null) {
-                continue // retry
-            }
-            // 3) Click
+            // 1) Arm the service for this package — it will locate the app row in the battery
+            //    list that is already (or will soon be) visible and drive the full dialog flow.
+            //    The battery list intent was already launched in runInternal before the loop.
             _state.value = State.Clicking(pkg)
-            _commands.emit(ServiceCommand.ClickToggleForPackage(pkg))
-            val click = awaitClickOutcome(pkg, timeoutMs = profile.clickTimeoutMs())
+            _commands.emit(ServiceCommand.ClickToggleForPackage(pkg, appLabel))
+
+            // 2) Wait for the full dialog flow to complete (AllTogglesDisabled = success) or fail
+            val click = awaitClickOutcome(
+                pkg,
+                timeoutMs = profile.screenReadyTimeoutMs() + profile.clickTimeoutMs()
+            )
             when (click) {
                 ClickOutcome.Clicked -> Unit
-                ClickOutcome.NotFound -> return AutomationError.ToggleNotFound
+                ClickOutcome.NotFound -> {
+                    if (attempt < profile.maxRetries() - 1) continue
+                    return AutomationError.ToggleNotFound
+                }
                 ClickOutcome.MaskedByMaster -> return AutomationError.ToggleMaskedByMaster
-                ClickOutcome.Timeout -> return AutomationError.WatchdogTimeout
+                ClickOutcome.Timeout -> {
+                    if (attempt < profile.maxRetries() - 1) continue
+                    return AutomationError.WatchdogTimeout
+                }
             }
-            // 4) Verify
+
+            // 3) Verify — after the dialog is dismissed the toggle should be OFF
             _state.value = State.Verifying(pkg)
             _commands.emit(ServiceCommand.VerifyToggleOff(pkg))
-            val verify = awaitEventMatching<NodeEvent.VerifyResult>(timeoutMs = profile.verifyTimeoutMs()) { it.pkg == pkg }
-            // 5) Back navigieren
-            _commands.emit(ServiceCommand.GlobalBack)
-            delay(150)
-            _commands.emit(ServiceCommand.GlobalBack)
+            val verify = awaitEventMatching<NodeEvent.VerifyResult>(
+                timeoutMs = VERIFY_TIMEOUT_MS
+            ) { it.pkg == pkg }
+
             return if (verify?.isOff == true) null else AutomationError.Unexpected("verify-failed")
         }
         return AutomationError.SettingsScreenNotResolved
     }
+
+    /**
+     * Resolves the user-visible application label for [pkg].
+     * Falls back to [pkg] itself if the label cannot be read (app uninstalled mid-run, etc.).
+     */
+    private fun resolveAppLabel(pkg: String): String = runCatching {
+        val pm = ctx.packageManager
+        val info = pm.getApplicationInfo(pkg, 0)
+        pm.getApplicationLabel(info).toString()
+    }.getOrDefault(pkg)
 
     // --- Event-await Helpers ---
 
@@ -272,4 +302,9 @@ class BulkAutostopEngine @Inject constructor(
                 }
             }
         } ?: ClickOutcome.Timeout
+
+    companion object {
+        private const val TAG = "BulkEngine"
+        private const val VERIFY_TIMEOUT_MS = 3_000L
+    }
 }

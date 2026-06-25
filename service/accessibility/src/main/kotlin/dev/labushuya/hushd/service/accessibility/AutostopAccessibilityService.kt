@@ -25,43 +25,45 @@ import timber.log.Timber
 import javax.inject.Inject
 
 // ---------------------------------------------------------------------------
-// Per-package state machine states
+// Per-package flow state machine
 // ---------------------------------------------------------------------------
 
 /**
- * Tracks where we are in the MagicOS battery-detail dialog flow for a single package.
+ * Tracks where we are in the MagicOS two-activity dialog flow for the current package.
  *
  * Flow:
  *   IDLE
- *   → OPENING_BATTERY_SCREEN  (intent fired)
- *   → WAITING_BATTERY_SCREEN  (waiting for TYPE_WINDOW_STATE_CHANGED to confirm screen)
- *   → CLICKING_START_SETTINGS (battery detail screen visible — click "Starteinstellungen" row)
- *   → WAITING_DIALOG          (row clicked — waiting for dialog to appear)
- *   → HANDLING_MASTER         (dialog visible — handle master toggle)
- *   → WAITING_AFTER_MASTER    (master toggle disabled — Handler delay before sub-toggles)
- *   → CLICKING_AUTOSTART      (click "Auto-Start" toggle if ON)
- *   → CLICKING_SECONDARY      (click "Sekundärer Start" toggle if ON and config says so)
- *   → CLICKING_BACKGROUND     (click "Im Hintergrund ausführen" toggle if ON and config says so)
- *   → CLICKING_OK             (click OK button)
- *   → WAITING_BACK            (OK clicked — short Handler delay then GLOBAL_ACTION_BACK)
- *   → DONE_PKG                (complete)
- *   → ERROR_PKG               (unrecoverable failure)
+ *   → OPENING_BATTERY_LIST      intent sent, waiting for HwPowerManagerActivity
+ *   → FINDING_APP_ROW           on battery list, looking for the app row by label
+ *   → WAITING_DETAIL_SCREEN     app row clicked, waiting for DetailOfSoftConsumptionActivity
+ *   → FINDING_START_SETTINGS    on detail screen, looking for "Starteinstellungen" row
+ *   → WAITING_DIALOG            row clicked, waiting for dialog (android:id/alertTitle)
+ *   → CLICKING_MASTER           click switch_auto_management if checked=true
+ *   → WAITING_AFTER_MASTER      delay [masterToggleOffDelayMs] after master click
+ *   → CLICKING_AUTOSTART        click switch_startup if checked=true and enabled
+ *   → CLICKING_SECONDARY        click switch_secondary_launch if config says so
+ *   → CLICKING_BACKGROUND       click switch_background_running if config says so
+ *   → CLICKING_OK               click android:id/button1 (OK)
+ *   → GOING_BACK                200ms delay, GLOBAL_ACTION_BACK x2, emit AllTogglesDisabled
+ *   → DONE
+ *   → ERROR
  */
-enum class PerPkgState {
+private enum class FlowStep {
     IDLE,
-    OPENING_BATTERY_SCREEN,
-    WAITING_BATTERY_SCREEN,
-    CLICKING_START_SETTINGS,
+    OPENING_BATTERY_LIST,
+    FINDING_APP_ROW,
+    WAITING_DETAIL_SCREEN,
+    FINDING_START_SETTINGS,
     WAITING_DIALOG,
-    HANDLING_MASTER,
+    CLICKING_MASTER,
     WAITING_AFTER_MASTER,
     CLICKING_AUTOSTART,
     CLICKING_SECONDARY,
     CLICKING_BACKGROUND,
     CLICKING_OK,
-    WAITING_BACK,
-    DONE_PKG,
-    ERROR_PKG
+    GOING_BACK,
+    DONE,
+    ERROR,
 }
 
 // ---------------------------------------------------------------------------
@@ -69,14 +71,22 @@ enum class PerPkgState {
 // ---------------------------------------------------------------------------
 
 /**
- * AccessibilityService implementing the MagicOS battery-detail dialog automation.
+ * AccessibilityService implementing the verified MagicOS two-activity dialog automation.
  *
- * The service drives a per-package state machine rather than a single global one,
- * enabling clean sequencing even across multiple events and Handler callbacks.
+ * Activity chain (verified on Honor Magic V2 MagicOS via adb uiautomator dump):
+ *   com.hihonor.systemmanager/.power.ui.HwPowerManagerActivity  — publicly accessible
+ *   com.hihonor.systemmanager/.power.ui.DetailOfSoftConsumptionActivity  — opened internally
  *
- * Lifecycle: System binds at Accessibility activation.
- *   onServiceConnected → hand Channel to [BulkAutostopEngine]
- *   onAccessibilityEvent → advance per-package state machine
+ * All toggle finders use resource-ID lookups (findAccessibilityNodeInfosByViewId) for
+ * reliability. Text-label fallback is kept only for findStartSettingsRow and findAppRowInBatteryList.
+ *
+ * packageNames filter in accessibility_service_config.xml is restricted to
+ * com.hihonor.systemmanager to limit event exposure.
+ *
+ * Lifecycle:
+ *   onServiceConnected → engine.attachService(this), coroutine collects commands
+ *   onAccessibilityEvent → advances [step] state machine
+ *   12 s watchdog per package resets on each step; fires ToggleNotFound + IDLE on timeout
  */
 @AndroidEntryPoint
 class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
@@ -97,9 +107,15 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
     private val handler = Handler(Looper.getMainLooper())
     private val watchdogToken = Any()
 
-    // Per-package state machine
+    // State machine — only accessed on the main thread (Handler + onAccessibilityEvent)
+    @Volatile private var step: FlowStep = FlowStep.IDLE
     @Volatile private var currentPkg: String = ""
-    @Volatile private var perPkgState: PerPkgState = PerPkgState.IDLE
+    @Volatile private var currentAppLabel: String = ""
+
+    // Per-step retry counter
+    private var findAppRowRetries = 0
+    private var findStartSettingsRetries = 0
+    private var findDialogRetries = 0
 
     // ---------------------------------------------------------------------------
     // Lifecycle
@@ -117,6 +133,7 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
     override fun onInterrupt() {
         Timber.tag(TAG).w("onInterrupt")
         outbound.trySend(NodeEvent.Interrupted)
+        resetToIdle()
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
@@ -139,13 +156,12 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
-        val pkg = event.packageName?.toString().orEmpty()
-        val cls = event.className?.toString().orEmpty()
         val profile = profileResolver.active()
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                handleWindowStateChanged(pkg, cls, profile)
+                val cls = event.className?.toString().orEmpty()
+                handleWindowStateChanged(cls, profile)
             }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
                 handleContentChanged(profile)
@@ -158,38 +174,32 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
     // TYPE_WINDOW_STATE_CHANGED
     // ---------------------------------------------------------------------------
 
-    private fun handleWindowStateChanged(pkg: String, cls: String, profile: OemProfile) {
-        Timber.tag(TAG).d("WindowStateChanged pkg=%s cls=%s perPkgState=%s", pkg, cls, perPkgState)
+    private fun handleWindowStateChanged(cls: String, profile: OemProfile) {
+        Timber.tag(TAG).v("WindowStateChanged cls=%s step=%s", cls, step)
 
-        val isOurScreen = profile.expectedScreenSignature()
-            .any { sig -> cls.contains(sig, ignoreCase = true) || pkg == sig }
+        when {
+            // Battery list arrived
+            cls.contains("HwPowerManagerActivity") && step == FlowStep.OPENING_BATTERY_LIST -> {
+                Timber.tag(TAG).d("HwPowerManagerActivity confirmed — scheduling findAppRow")
+                step = FlowStep.FINDING_APP_ROW
+                outbound.trySend(NodeEvent.ScreenReady(
+                    packageName = "com.hihonor.systemmanager",
+                    className = cls,
+                    rootBoundsHash = 0,
+                ))
+                resetWatchdog()
+                // Short delay for the list to finish rendering
+                handler.postDelayed({ tryFindAndClickAppRow(profile) }, 100L)
+            }
 
-        if (!isOurScreen) {
-            // Not our screen — do not touch state or watchdog
-            return
-        }
-
-        resetWatchdog(WATCHDOG_MS)
-
-        // Publish generic ScreenReady for the engine's coroutine-based await
-        val root = rootInActiveWindow
-        if (root == null) {
-            outbound.trySend(NodeEvent.RootUnavailable)
-            return
-        }
-        outbound.trySend(
-            NodeEvent.ScreenReady(
-                packageName = pkg,
-                className = cls,
-                rootBoundsHash = root.hashCode()
-            )
-        )
-
-        // Advance state machine: if we were waiting for this screen, proceed
-        if (perPkgState == PerPkgState.WAITING_BATTERY_SCREEN) {
-            Timber.tag(TAG).d("Battery screen confirmed for %s — advancing to CLICKING_START_SETTINGS", currentPkg)
-            perPkgState = PerPkgState.CLICKING_START_SETTINGS
-            clickStartSettingsRow(root, profile)
+            // Detail screen arrived (internal navigation from tapping app row)
+            cls.contains("DetailOfSoftConsumptionActivity") && step == FlowStep.WAITING_DETAIL_SCREEN -> {
+                Timber.tag(TAG).d("DetailOfSoftConsumptionActivity confirmed for %s", currentPkg)
+                step = FlowStep.FINDING_START_SETTINGS
+                resetWatchdog()
+                // Give the detail screen time to fully render its rows
+                handler.postDelayed({ tryFindAndClickStartSettings(profile) }, 200L)
+            }
         }
     }
 
@@ -198,12 +208,14 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
     // ---------------------------------------------------------------------------
 
     private fun handleContentChanged(profile: OemProfile) {
-        val state = perPkgState
-        if (state == PerPkgState.IDLE || state == PerPkgState.DONE_PKG ||
-            state == PerPkgState.ERROR_PKG || state == PerPkgState.WAITING_BACK ||
-            state == PerPkgState.WAITING_AFTER_MASTER
+        val currentStep = step
+        if (currentStep == FlowStep.IDLE ||
+            currentStep == FlowStep.DONE ||
+            currentStep == FlowStep.ERROR ||
+            currentStep == FlowStep.WAITING_AFTER_MASTER ||
+            currentStep == FlowStep.GOING_BACK ||
+            currentStep == FlowStep.OPENING_BATTERY_LIST
         ) {
-            // Nothing to do in these states on content change
             return
         }
 
@@ -212,32 +224,51 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
             return
         }
 
-        when (state) {
-            PerPkgState.WAITING_DIALOG -> {
+        when (currentStep) {
+            FlowStep.FINDING_APP_ROW -> {
+                tryFindAndClickAppRow(profile)
+            }
+            FlowStep.FINDING_START_SETTINGS -> {
+                tryFindAndClickStartSettings(profile)
+            }
+            FlowStep.WAITING_DIALOG -> {
                 if (profile.isDialogVisible(root)) {
-                    Timber.tag(TAG).d("Dialog appeared for %s", currentPkg)
+                    Timber.tag(TAG).d("Dialog visible for %s", currentPkg)
                     outbound.trySend(NodeEvent.DialogAppeared(currentPkg))
-                    perPkgState = PerPkgState.HANDLING_MASTER
+                    step = FlowStep.CLICKING_MASTER
                     handleMasterToggle(root, profile)
+                } else {
+                    findDialogRetries++
+                    if (findDialogRetries > MAX_RETRIES_DIALOG) {
+                        Timber.tag(TAG).w("Dialog never appeared for %s after %d checks",
+                            currentPkg, findDialogRetries)
+                        failCurrentPkg()
+                    }
                 }
             }
-            PerPkgState.HANDLING_MASTER -> {
-                // Re-check in case dialog rendered late
-                if (profile.isDialogVisible(root)) {
-                    handleMasterToggle(root, profile)
+            FlowStep.CLICKING_AUTOSTART -> {
+                val freshRoot = rootInActiveWindow ?: run {
+                    outbound.trySend(NodeEvent.RootUnavailable); return
                 }
+                clickAutoStart(freshRoot, profile)
             }
-            PerPkgState.CLICKING_AUTOSTART -> {
-                clickAutoStart(root, profile)
+            FlowStep.CLICKING_SECONDARY -> {
+                val freshRoot = rootInActiveWindow ?: run {
+                    outbound.trySend(NodeEvent.RootUnavailable); return
+                }
+                clickSecondaryStart(freshRoot, profile)
             }
-            PerPkgState.CLICKING_SECONDARY -> {
-                clickSecondaryStart(root, profile)
+            FlowStep.CLICKING_BACKGROUND -> {
+                val freshRoot = rootInActiveWindow ?: run {
+                    outbound.trySend(NodeEvent.RootUnavailable); return
+                }
+                clickBackgroundRun(freshRoot, profile)
             }
-            PerPkgState.CLICKING_BACKGROUND -> {
-                clickBackgroundRun(root, profile)
-            }
-            PerPkgState.CLICKING_OK -> {
-                clickOkButton(root, profile)
+            FlowStep.CLICKING_OK -> {
+                val freshRoot = rootInActiveWindow ?: run {
+                    outbound.trySend(NodeEvent.RootUnavailable); return
+                }
+                clickOkButton(freshRoot, profile)
             }
             else -> Unit
         }
@@ -247,19 +278,70 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
     // State machine step implementations
     // ---------------------------------------------------------------------------
 
-    private fun clickStartSettingsRow(root: AccessibilityNodeInfo, profile: OemProfile) {
-        val row = profile.findStartSettingsRow(root)
-        if (row == null) {
-            Timber.tag(TAG).w("Starteinstellungen row NOT found for %s", currentPkg)
-            // Fall back to legacy single-toggle path
-            handleLegacyToggleClick(root, profile)
+    /**
+     * Called via Handler after a short delay post-OPENING_BATTERY_LIST, and on
+     * TYPE_WINDOW_CONTENT_CHANGED while in FINDING_APP_ROW.
+     */
+    private fun tryFindAndClickAppRow(profile: OemProfile) {
+        if (step != FlowStep.FINDING_APP_ROW) return
+        val root = rootInActiveWindow ?: run {
+            outbound.trySend(NodeEvent.RootUnavailable)
             return
         }
-        val clicked = row.isClickable && row.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        val row = profile.findAppRowInBatteryList(root, currentAppLabel)
+        if (row == null) {
+            findAppRowRetries++
+            Timber.tag(TAG).d("App row '%s' not found yet (retry %d)", currentAppLabel, findAppRowRetries)
+            if (findAppRowRetries > MAX_RETRIES_APP_ROW) {
+                Timber.tag(TAG).w("App row '%s' not found after %d retries",
+                    currentAppLabel, findAppRowRetries)
+                outbound.trySend(NodeEvent.ToggleNotFound(currentPkg))
+                resetToIdle()
+            }
+            // Will be retried on next TYPE_WINDOW_CONTENT_CHANGED
+            return
+        }
+        val clicked = row.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         if (clicked) {
-            Timber.tag(TAG).d("Clicked Starteinstellungen row for %s", currentPkg)
+            Timber.tag(TAG).d("App row clicked for %s — waiting for DetailOfSoftConsumptionActivity", currentPkg)
+            step = FlowStep.WAITING_DETAIL_SCREEN
+            resetWatchdog()
+        } else {
+            Timber.tag(TAG).w("App row click failed for %s", currentPkg)
+            outbound.trySend(NodeEvent.ToggleNotClickable(currentPkg))
+            resetToIdle()
+        }
+    }
+
+    /**
+     * Called via Handler after a short delay post-WAITING_DETAIL_SCREEN confirmation,
+     * and on TYPE_WINDOW_CONTENT_CHANGED while in FINDING_START_SETTINGS.
+     */
+    private fun tryFindAndClickStartSettings(profile: OemProfile) {
+        if (step != FlowStep.FINDING_START_SETTINGS) return
+        val root = rootInActiveWindow ?: run {
+            outbound.trySend(NodeEvent.RootUnavailable)
+            return
+        }
+        val row = profile.findStartSettingsRow(root)
+        if (row == null) {
+            findStartSettingsRetries++
+            Timber.tag(TAG).d("Starteinstellungen row not found yet (retry %d)", findStartSettingsRetries)
+            if (findStartSettingsRetries > MAX_RETRIES_START_SETTINGS) {
+                Timber.tag(TAG).w("Starteinstellungen row not found after %d retries",
+                    findStartSettingsRetries)
+                outbound.trySend(NodeEvent.ToggleNotFound(currentPkg))
+                resetToIdle()
+            }
+            return
+        }
+        val clicked = row.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (clicked) {
+            Timber.tag(TAG).d("Starteinstellungen row clicked for %s", currentPkg)
             outbound.trySend(NodeEvent.StartSettingsRowClicked(currentPkg))
-            perPkgState = PerPkgState.WAITING_DIALOG
+            step = FlowStep.WAITING_DIALOG
+            findDialogRetries = 0
+            resetWatchdog()
         } else {
             Timber.tag(TAG).w("Starteinstellungen row click failed for %s — trying parent", currentPkg)
             val parent = row.parent
@@ -268,11 +350,13 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
                 parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (parentClicked) {
                 outbound.trySend(NodeEvent.StartSettingsRowClicked(currentPkg))
-                perPkgState = PerPkgState.WAITING_DIALOG
+                step = FlowStep.WAITING_DIALOG
+                findDialogRetries = 0
+                resetWatchdog()
             } else {
                 Timber.tag(TAG).e("Starteinstellungen row not clickable for %s", currentPkg)
                 outbound.trySend(NodeEvent.ToggleNotClickable(currentPkg))
-                perPkgState = PerPkgState.ERROR_PKG
+                resetToIdle()
             }
         }
     }
@@ -282,69 +366,63 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
         if (master == null) {
             // No master toggle visible — proceed directly to auto-start sub-toggle
             Timber.tag(TAG).d("No master toggle found for %s — skipping to CLICKING_AUTOSTART", currentPkg)
-            perPkgState = PerPkgState.CLICKING_AUTOSTART
+            step = FlowStep.CLICKING_AUTOSTART
             clickAutoStart(root, profile)
             return
         }
 
-        val isOn = master.isChecked || master.isSelected
-        if (isOn) {
-            Timber.tag(TAG).d("Master toggle is ON for %s — clicking to disable", currentPkg)
+        if (master.isChecked) {
+            Timber.tag(TAG).d("Master toggle ON for %s — clicking to disable", currentPkg)
             val clicked = master.isClickable && master.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (!clicked) {
                 Timber.tag(TAG).w("Master toggle click failed for %s", currentPkg)
                 outbound.trySend(NodeEvent.ToggleNotClickable(currentPkg))
-                perPkgState = PerPkgState.ERROR_PKG
+                resetToIdle()
                 return
             }
             outbound.trySend(NodeEvent.MasterToggleDisabled(currentPkg))
-            perPkgState = PerPkgState.WAITING_AFTER_MASTER
-            // Delay before sub-toggles become active
-            val delay = profile.masterToggleOffDelayMs()
-            handler.postDelayed(
-                {
-                    Timber.tag(TAG).d("Master delay elapsed for %s — advancing to CLICKING_AUTOSTART", currentPkg)
-                    perPkgState = PerPkgState.CLICKING_AUTOSTART
-                    val freshRoot = rootInActiveWindow
-                    if (freshRoot != null) {
-                        clickAutoStart(freshRoot, profile)
-                    } else {
-                        outbound.trySend(NodeEvent.RootUnavailable)
-                        perPkgState = PerPkgState.ERROR_PKG
-                    }
-                },
-                delay
-            )
+            step = FlowStep.WAITING_AFTER_MASTER
+            resetWatchdog()
+            // Wait for sub-toggles to become enabled
+            val delayMs = profile.masterToggleOffDelayMs()
+            handler.postDelayed({
+                if (step != FlowStep.WAITING_AFTER_MASTER) return@postDelayed
+                Timber.tag(TAG).d("Master delay elapsed for %s — advancing to CLICKING_AUTOSTART", currentPkg)
+                step = FlowStep.CLICKING_AUTOSTART
+                val freshRoot = rootInActiveWindow
+                if (freshRoot != null) {
+                    clickAutoStart(freshRoot, profile)
+                } else {
+                    outbound.trySend(NodeEvent.RootUnavailable)
+                    resetToIdle()
+                }
+            }, delayMs)
         } else {
-            // Master already OFF
+            // Master already OFF — sub-toggles should already be independently accessible
             Timber.tag(TAG).d("Master toggle already OFF for %s", currentPkg)
-            perPkgState = PerPkgState.CLICKING_AUTOSTART
+            step = FlowStep.CLICKING_AUTOSTART
             clickAutoStart(root, profile)
         }
     }
 
     private fun clickAutoStart(root: AccessibilityNodeInfo, profile: OemProfile) {
+        if (step != FlowStep.CLICKING_AUTOSTART) return
         val toggle = profile.findAutoStartToggle(root)
         if (toggle == null) {
-            Timber.tag(TAG).w("Auto-Start toggle not found for %s", currentPkg)
-            // Not a fatal error — proceed to secondary
+            Timber.tag(TAG).d("Auto-Start toggle not found for %s — continuing", currentPkg)
             advanceFromAutostart(root, profile)
             return
         }
-        val isOn = toggle.isChecked || toggle.isSelected
-        if (isOn) {
+        if (toggle.isChecked) {
             if (!toggle.isEnabled) {
-                Timber.tag(TAG).w("Auto-Start toggle is disabled (greyed) for %s — master still ON?", currentPkg)
+                Timber.tag(TAG).w("Auto-Start toggle disabled (greyed) for %s — master still ON?", currentPkg)
                 outbound.trySend(NodeEvent.ToggleDisabledByMaster(currentPkg))
-                perPkgState = PerPkgState.ERROR_PKG
+                resetToIdle()
                 return
             }
             val clicked = toggle.isClickable && toggle.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (!clicked) {
-                Timber.tag(TAG).w("Auto-Start toggle click failed for %s", currentPkg)
-            } else {
-                Timber.tag(TAG).d("Auto-Start toggle clicked OFF for %s", currentPkg)
-            }
+            Timber.tag(TAG).d("Auto-Start toggle click %s for %s",
+                if (clicked) "succeeded" else "failed", currentPkg)
         } else {
             Timber.tag(TAG).d("Auto-Start already OFF for %s", currentPkg)
         }
@@ -352,98 +430,73 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
     }
 
     private fun advanceFromAutostart(root: AccessibilityNodeInfo, profile: OemProfile) {
-        perPkgState = PerPkgState.CLICKING_SECONDARY
+        step = FlowStep.CLICKING_SECONDARY
         clickSecondaryStart(root, profile)
     }
 
     private fun clickSecondaryStart(root: AccessibilityNodeInfo, profile: OemProfile) {
-        if (!profile.disableSecondaryStart()) {
-            Timber.tag(TAG).d("disableSecondaryStart=false for %s — skipping", currentPkg)
-            perPkgState = PerPkgState.CLICKING_BACKGROUND
-            clickBackgroundRun(root, profile)
-            return
-        }
-        val toggle = profile.findSecondaryStartToggle(root)
-        if (toggle != null) {
-            val isOn = toggle.isChecked || toggle.isSelected
-            if (isOn && toggle.isEnabled) {
+        if (step != FlowStep.CLICKING_SECONDARY) return
+        if (profile.disableSecondaryStart()) {
+            val toggle = profile.findSecondaryStartToggle(root)
+            if (toggle != null && toggle.isChecked && toggle.isEnabled) {
                 toggle.isClickable && toggle.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 Timber.tag(TAG).d("Sekundärer Start toggled OFF for %s", currentPkg)
+            } else if (toggle == null) {
+                Timber.tag(TAG).d("Sekundärer Start toggle not found for %s", currentPkg)
             }
         } else {
-            Timber.tag(TAG).d("Sekundärer Start toggle not found for %s", currentPkg)
+            Timber.tag(TAG).d("disableSecondaryStart=false — skipping for %s", currentPkg)
         }
-        perPkgState = PerPkgState.CLICKING_BACKGROUND
+        step = FlowStep.CLICKING_BACKGROUND
         clickBackgroundRun(root, profile)
     }
 
     private fun clickBackgroundRun(root: AccessibilityNodeInfo, profile: OemProfile) {
-        if (!profile.disableBackgroundRun()) {
-            Timber.tag(TAG).d("disableBackgroundRun=false for %s — skipping", currentPkg)
-            perPkgState = PerPkgState.CLICKING_OK
-            clickOkButton(root, profile)
-            return
-        }
-        val toggle = profile.findBackgroundRunToggle(root)
-        if (toggle != null) {
-            val isOn = toggle.isChecked || toggle.isSelected
-            if (isOn && toggle.isEnabled) {
+        if (step != FlowStep.CLICKING_BACKGROUND) return
+        if (profile.disableBackgroundRun()) {
+            val toggle = profile.findBackgroundRunToggle(root)
+            if (toggle != null && toggle.isChecked && toggle.isEnabled) {
                 toggle.isClickable && toggle.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                Timber.tag(TAG).d("Im Hintergrund ausführen toggled OFF for %s", currentPkg)
+                Timber.tag(TAG).d("Background run toggled OFF for %s", currentPkg)
+            } else if (toggle == null) {
+                Timber.tag(TAG).d("Background run toggle not found for %s", currentPkg)
             }
         } else {
-            Timber.tag(TAG).d("Background run toggle not found for %s", currentPkg)
+            Timber.tag(TAG).d("disableBackgroundRun=false — skipping for %s", currentPkg)
         }
-        perPkgState = PerPkgState.CLICKING_OK
+        step = FlowStep.CLICKING_OK
         clickOkButton(root, profile)
     }
 
     private fun clickOkButton(root: AccessibilityNodeInfo, profile: OemProfile) {
+        if (step != FlowStep.CLICKING_OK) return
         val ok = profile.findOkButton(root)
         if (ok == null) {
             Timber.tag(TAG).w("OK button not found for %s", currentPkg)
             outbound.trySend(NodeEvent.ToggleNotFound(currentPkg))
-            perPkgState = PerPkgState.ERROR_PKG
+            resetToIdle()
             return
         }
         val clicked = ok.isClickable && ok.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         if (clicked) {
             Timber.tag(TAG).d("OK button clicked for %s", currentPkg)
-            perPkgState = PerPkgState.WAITING_BACK
-            // Short delay then navigate back
-            handler.postDelayed(
-                {
+            step = FlowStep.GOING_BACK
+            cancelWatchdog()
+            // Navigate back twice to return to the battery list, then signal success
+            handler.postDelayed({
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                handler.postDelayed({
                     performGlobalAction(GLOBAL_ACTION_BACK)
                     outbound.trySend(NodeEvent.AllTogglesDisabled(currentPkg))
-                    perPkgState = PerPkgState.DONE_PKG
                     Timber.tag(TAG).i("AllTogglesDisabled emitted for %s", currentPkg)
-                },
-                200L
-            )
+                    step = FlowStep.DONE
+                }, 200L)
+            }, 200L)
         } else {
             Timber.tag(TAG).w("OK button click failed for %s", currentPkg)
             outbound.trySend(NodeEvent.ToggleNotClickable(currentPkg))
-            perPkgState = PerPkgState.ERROR_PKG
+            resetToIdle()
         }
-    }
-
-    // ---------------------------------------------------------------------------
-    // Legacy single-toggle path (fallback when Starteinstellungen row is absent)
-    // ---------------------------------------------------------------------------
-
-    /**
-     * Falls back to the old single-toggle logic for devices that show the toggle
-     * directly on the battery detail screen without the dialog (or for non-battery screens).
-     */
-    private fun handleLegacyToggleClick(root: AccessibilityNodeInfo, profile: OemProfile) {
-        val toggle = profile.findAutoLaunchToggleNode(root)
-        if (toggle == null) {
-            outbound.trySend(NodeEvent.ToggleNotFound(currentPkg))
-            perPkgState = PerPkgState.ERROR_PKG
-            return
-        }
-        performClickOnToggle(toggle, currentPkg)
-        perPkgState = PerPkgState.DONE_PKG
     }
 
     // ---------------------------------------------------------------------------
@@ -453,25 +506,35 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
     private fun handleCommand(cmd: ServiceCommand) {
         when (cmd) {
             is ServiceCommand.ClickToggleForPackage -> {
-                // Set the target package and arm the state machine
                 currentPkg = cmd.targetPackage
-                perPkgState = PerPkgState.WAITING_BATTERY_SCREEN
-                Timber.tag(TAG).d("ClickToggleForPackage %s — armed WAITING_BATTERY_SCREEN", currentPkg)
+                currentAppLabel = cmd.appLabel
+                findAppRowRetries = 0
+                findStartSettingsRetries = 0
+                findDialogRetries = 0
+                step = FlowStep.OPENING_BATTERY_LIST
+                Timber.tag(TAG).d(
+                    "ClickToggleForPackage pkg=%s label='%s' — armed OPENING_BATTERY_LIST",
+                    currentPkg, currentAppLabel
+                )
+                resetWatchdog()
 
-                // If the battery screen is already visible, advance immediately
+                // If the battery list screen is already the active window, skip straight to
+                // FINDING_APP_ROW (handles the case where previous package left us on the list)
                 val root = rootInActiveWindow
                 if (root != null) {
-                    val profile = profileResolver.active()
-                    val alreadyOnScreen = profile.expectedScreenSignature().any { sig ->
-                        root.packageName?.contains(sig, ignoreCase = true) == true
-                    }
-                    if (alreadyOnScreen) {
-                        Timber.tag(TAG).d("Battery screen already active for %s", currentPkg)
-                        perPkgState = PerPkgState.CLICKING_START_SETTINGS
-                        clickStartSettingsRow(root, profile)
+                    val cls = root.className?.toString().orEmpty()
+                    if (cls.contains("HwPowerManagerActivity") ||
+                        root.packageName?.toString() == "com.hihonor.systemmanager"
+                    ) {
+                        Timber.tag(TAG).d("Battery list already active — skipping to FINDING_APP_ROW")
+                        step = FlowStep.FINDING_APP_ROW
+                        handler.postDelayed({
+                            tryFindAndClickAppRow(profileResolver.active())
+                        }, 100L)
                     }
                 }
             }
+
             is ServiceCommand.VerifyToggleOff -> {
                 val root = rootInActiveWindow
                 if (root == null) {
@@ -479,12 +542,15 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
                 }
                 val profile = profileResolver.active()
                 val toggle = profile.findAutoLaunchToggleNode(root)
-                val off = toggle == null || (!toggle.isChecked && !toggle.isSelected)
-                outbound.trySend(NodeEvent.VerifyResult(cmd.targetPackage, isOff = off))
+                // After a successful run the dialog is dismissed; toggle being absent = success
+                val isOff = toggle == null || !toggle.isChecked
+                outbound.trySend(NodeEvent.VerifyResult(cmd.targetPackage, isOff = isOff))
             }
+
             ServiceCommand.GlobalBack -> {
                 performGlobalAction(GLOBAL_ACTION_BACK)
             }
+
             ServiceCommand.DisableSelf -> {
                 Timber.tag(TAG).i("disableSelf() requested by engine")
                 disableSelf()
@@ -493,33 +559,19 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
     }
 
     // ---------------------------------------------------------------------------
-    // Legacy click helper (used by fallback path)
+    // Watchdog — 12 s total per package
     // ---------------------------------------------------------------------------
 
-    private fun performClickOnToggle(node: AccessibilityNodeInfo, targetPackage: String) {
-        if (!node.isEnabled) {
-            Timber.tag(TAG).w("Toggle for %s is disabled — masked by master toggle?", targetPackage)
-            outbound.trySend(NodeEvent.ToggleDisabledByMaster(targetPackage))
-            return
-        }
-        val clicked = node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-        if (clicked) {
-            outbound.trySend(NodeEvent.ToggleClicked(targetPackage, viaGesture = false))
-        } else {
-            outbound.trySend(NodeEvent.ToggleNotClickable(targetPackage))
-        }
-    }
-
-    // ---------------------------------------------------------------------------
-    // Watchdog
-    // ---------------------------------------------------------------------------
-
-    private fun resetWatchdog(timeoutMs: Long) {
+    private fun resetWatchdog() {
         handler.removeCallbacksAndMessages(watchdogToken)
         handler.postAtTime(
-            { outbound.trySend(NodeEvent.WatchdogTimeout) },
+            {
+                Timber.tag(TAG).w("Watchdog fired for pkg=%s step=%s", currentPkg, step)
+                outbound.trySend(NodeEvent.ToggleNotFound(currentPkg))
+                resetToIdle()
+            },
             watchdogToken,
-            SystemClock.uptimeMillis() + timeoutMs
+            SystemClock.uptimeMillis() + WATCHDOG_MS
         )
     }
 
@@ -527,8 +579,21 @@ class AutostopAccessibilityService : AccessibilityService(), A11yServiceHandle {
         handler.removeCallbacksAndMessages(watchdogToken)
     }
 
+    private fun failCurrentPkg() {
+        outbound.trySend(NodeEvent.ToggleNotFound(currentPkg))
+        resetToIdle()
+    }
+
+    private fun resetToIdle() {
+        cancelWatchdog()
+        step = FlowStep.IDLE
+    }
+
     companion object {
         private const val TAG = "A11ySvc"
-        private const val WATCHDOG_MS = 10_000L
+        private const val WATCHDOG_MS = 12_000L
+        private const val MAX_RETRIES_APP_ROW = 5
+        private const val MAX_RETRIES_START_SETTINGS = 5
+        private const val MAX_RETRIES_DIALOG = 8
     }
 }

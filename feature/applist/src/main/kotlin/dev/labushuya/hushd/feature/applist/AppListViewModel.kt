@@ -22,7 +22,14 @@ enum class AutostartStatus { ENABLED, DISABLED, UNKNOWN }
 
 enum class AppTab { USER, SYSTEM }
 
-enum class StatusFilter { ALL, ENABLED_ONLY, DISABLED_ONLY }
+/**
+ * Filter for the autostart-status column.
+ *
+ * [ALL]              — every app regardless of status
+ * [NOT_YET_DISABLED] — ENABLED + UNKNOWN (treat unknown as "possibly still active")
+ * [DISABLED_ONLY]    — only apps confirmed as DISABLED
+ */
+enum class StatusFilter { ALL, NOT_YET_DISABLED, DISABLED_ONLY }
 
 data class AppItem(
     val packageName: String,
@@ -113,6 +120,16 @@ class AppListViewModel @Inject constructor(
 
     // ---- Autostart status ---------------------------------------------------
 
+    /**
+     * Updates the cached autostart status for a single package.
+     *
+     * Call this from MainActivity (or the automation flow caller) after each
+     * successful automation run so the list immediately reflects the new state:
+     *
+     *     viewModel.updateAutostartStatus(pkg, AutostartStatus.DISABLED)
+     *
+     * This keeps the UI in sync without requiring a full [reload].
+     */
     fun updateAutostartStatus(pkg: String, status: AutostartStatus) = _state.update { s ->
         val updatedApps = s.apps.map { app ->
             if (app.packageName == pkg) app.copy(autostartStatus = status) else app
@@ -139,7 +156,9 @@ class AppListViewModel @Inject constructor(
             .filter { a ->
                 when (s.statusFilter) {
                     StatusFilter.ALL -> true
-                    StatusFilter.ENABLED_ONLY -> a.autostartStatus == AutostartStatus.ENABLED
+                    StatusFilter.NOT_YET_DISABLED ->
+                        a.autostartStatus == AutostartStatus.ENABLED ||
+                            a.autostartStatus == AutostartStatus.UNKNOWN
                     StatusFilter.DISABLED_ONLY -> a.autostartStatus == AutostartStatus.DISABLED
                 }
             }

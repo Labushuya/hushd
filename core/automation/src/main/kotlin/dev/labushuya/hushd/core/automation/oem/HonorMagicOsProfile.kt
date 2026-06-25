@@ -4,8 +4,6 @@ package dev.labushuya.hushd.core.automation.oem
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
 import android.view.accessibility.AccessibilityNodeInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.json.JSONObject
@@ -14,52 +12,83 @@ import javax.inject.Inject
 
 /**
  * OemProfile describes all OEM-specific navigation for one device family.
- * The interface is expanded to support the MagicOS battery-detail dialog flow:
- *   Battery list → BatteryNormalAppDetailActivity → tap "Starteinstellungen" row
- *   → dialog with master toggle + sub-toggles → tap OK.
+ *
+ * MagicOS two-activity flow:
+ *   1. Open [openBatteryListScreen] → HwPowerManagerActivity (battery list, publicly accessible)
+ *   2. Accessibility service finds the app row via [findAppRowInBatteryList] and taps it
+ *   3. System internally opens DetailOfSoftConsumptionActivity (requires HW_SIGNATURE_OR_SYSTEM)
+ *   4. Service finds "Starteinstellungen" row via [findStartSettingsRow] and taps it
+ *   5. Dialog appears: disable master + sub-toggles via resource-ID finders → tap OK
  */
 interface OemProfile {
     val id: String
 
-    /** Build an Intent that opens the battery/autostart detail screen for [pkg]. */
-    fun openSettingsForPackage(ctx: Context, pkg: String): Intent?
+    /**
+     * Opens the battery list screen (HwPowerManagerActivity).
+     * This is NOT the per-app detail screen — it is the list of all apps with battery usage.
+     * The accessibility service must then tap the app row to trigger internal navigation
+     * to DetailOfSoftConsumptionActivity.
+     */
+    fun openBatteryListScreen(ctx: Context): Intent
 
-    /** Find the "Starteinstellungen" (launch settings) clickable row on the battery detail screen. */
+    /**
+     * Finds the app row in the battery list (HwPowerManagerActivity) whose text contains
+     * [appLabel]. The row may include a percentage suffix; matching is done by containment,
+     * not exact equality. Returns the clickable row container node, or null if not found.
+     */
+    fun findAppRowInBatteryList(root: AccessibilityNodeInfo, appLabel: String): AccessibilityNodeInfo?
+
+    /**
+     * Finds the "Starteinstellungen" (launch settings) clickable row on the
+     * DetailOfSoftConsumptionActivity screen. Tries all labels from config.
+     */
     fun findStartSettingsRow(root: AccessibilityNodeInfo): AccessibilityNodeInfo?
 
     /**
-     * Find the master "Automatisch verwalten" toggle inside the dialog.
-     * Returns the Switch/CheckBox widget node.
+     * Finds the master "Automatisch verwalten" toggle inside the dialog.
+     * Uses [ProfileConfig.masterToggleResourceId] via findAccessibilityNodeInfosByViewId.
      */
     fun findMasterToggle(root: AccessibilityNodeInfo): AccessibilityNodeInfo?
 
-    /** Find the "Auto-Start" sub-toggle inside the dialog. */
+    /**
+     * Finds the "Auto-Start" sub-toggle inside the dialog.
+     * Uses [ProfileConfig.autoStartResourceId].
+     */
     fun findAutoStartToggle(root: AccessibilityNodeInfo): AccessibilityNodeInfo?
 
-    /** Find the "Sekundärer Start" sub-toggle inside the dialog. */
+    /**
+     * Finds the "Sekundärer Start" sub-toggle inside the dialog.
+     * Uses [ProfileConfig.secondaryStartResourceId].
+     */
     fun findSecondaryStartToggle(root: AccessibilityNodeInfo): AccessibilityNodeInfo?
 
-    /** Find the "Im Hintergrund ausführen" sub-toggle inside the dialog. */
+    /**
+     * Finds the "Im Hintergrund ausführen" sub-toggle inside the dialog.
+     * Uses [ProfileConfig.backgroundRunResourceId].
+     */
     fun findBackgroundRunToggle(root: AccessibilityNodeInfo): AccessibilityNodeInfo?
 
-    /** Find the "OK" button that confirms the dialog. */
+    /**
+     * Finds the OK button that confirms the dialog.
+     * Uses [ProfileConfig.okButtonResourceId] (android:id/button1).
+     */
     fun findOkButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo?
 
     /**
-     * Kept for backwards compatibility with existing code paths that call the single-toggle flow.
+     * Returns true when the launch-settings dialog is currently visible, detected by
+     * findAccessibilityNodeInfosByViewId([ProfileConfig.dialogTitleResourceId]).
+     */
+    fun isDialogVisible(root: AccessibilityNodeInfo): Boolean
+
+    /**
+     * Legacy — kept for backward compatibility with existing code paths.
      * Delegates to [findAutoStartToggle].
      */
     fun findAutoLaunchToggleNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
         findAutoStartToggle(root)
 
-    /** Returns true when the launch-settings dialog is currently visible. */
-    fun isDialogVisible(root: AccessibilityNodeInfo): Boolean
-
-    /** Set of strings that identify the battery detail screen (class name fragments / package). */
+    /** Set of strings that identify the battery / detail screens (class-name fragments / package). */
     fun expectedScreenSignature(): Set<String>
-
-    /** Set of strings that identify the launch-settings dialog. */
-    fun dialogSignature(): Set<String>
 
     /** Whether the "Sekundärer Start" sub-toggle should be disabled. */
     fun disableSecondaryStart(): Boolean
@@ -78,16 +107,19 @@ interface OemProfile {
 
     fun screenReadyTimeoutMs(): Long = 6_000
     fun clickTimeoutMs(): Long = 5_000
-    fun verifyTimeoutMs(): Long = 3_000
 }
 
 /**
- * HonorMagicOsProfile implements the battery-detail dialog flow introduced in
- * MagicOS 8/9 (HONOR Magic V2 and later devices).
+ * HonorMagicOsProfile implements the battery-list → detail dialog flow verified on the
+ * Honor Magic V2 running MagicOS.
  *
- * Navigation path:
- *   Einstellungen → Akku → [app row] → BatteryNormalAppDetailActivity
- *   → tap "Starteinstellungen" row → dialog → disable toggles → OK
+ * Navigation path (verified via adb uiautomator dump):
+ *   1. startActivity(HwPowerManagerActivity) — publicly accessible, no system permission
+ *   2. A11y taps the app row (text contains appLabel) → DetailOfSoftConsumptionActivity opens
+ *   3. A11y taps the "Starteinstellungen" row → dialog appears
+ *   4. A11y turns off switch_auto_management (master) → waits [masterToggleOffDelayMs]
+ *   5. A11y turns off switch_startup, switch_secondary_launch, switch_background_running
+ *   6. A11y clicks android:id/button1 (OK) → 2× GLOBAL_ACTION_BACK
  */
 class HonorMagicOsProfile @Inject constructor(
     @ApplicationContext private val appCtx: Context,
@@ -100,41 +132,46 @@ class HonorMagicOsProfile @Inject constructor(
     // Screen navigation
     // -------------------------------------------------------------------------
 
-    /**
-     * Tries battery-detail Activity candidates first (primary path for MagicOS 8/9),
-     * then falls back to the legacy startup-manager screens, then to the generic
-     * ACTION_APPLICATION_DETAILS_SETTINGS.
-     */
-    override fun openSettingsForPackage(ctx: Context, pkg: String): Intent? {
-        val pm = ctx.packageManager
-
-        // Primary: battery detail candidates from config (BatteryNormalAppDetailActivity, …)
-        for (candidate in config.batteryDetailActivityCandidates) {
-            val (appPkg, cls) = splitFqn(candidate) ?: continue
-            val intent = buildIntent(appPkg, cls, pkg)
-            if (runCatching { pm.resolveActivity(intent, 0) }.getOrNull() != null) {
-                Timber.tag(TAG).d("Resolved battery intent: %s", candidate)
-                return intent
-            }
+    override fun openBatteryListScreen(ctx: Context): Intent {
+        val (appPkg, cls) = splitFqn(config.batteryListActivityFqn)
+            ?: error("Malformed batteryListActivityFqn: ${config.batteryListActivityFqn}")
+        Timber.tag(TAG).d("openBatteryListScreen → %s", config.batteryListActivityFqn)
+        return Intent().apply {
+            component = ComponentName(appPkg, cls)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_NO_HISTORY or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION
+            )
         }
-
-        // Last resort: generic App-Info screen
-        Timber.tag(TAG).w("No battery detail activity resolved for %s — falling back to App-Info", pkg)
-        return Intent(
-            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-            Uri.fromParts("package", pkg, null)
-        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
     // -------------------------------------------------------------------------
     // Accessibility node finders
     // -------------------------------------------------------------------------
 
+    override fun findAppRowInBatteryList(
+        root: AccessibilityNodeInfo,
+        appLabel: String
+    ): AccessibilityNodeInfo? {
+        // App rows in HwPowerManagerActivity show "AppName  XX%" — match by containment
+        val candidates = root.findAccessibilityNodeInfosByText(appLabel)
+        for (node in candidates) {
+            if (!node.isVisibleToUser) continue
+            val text = node.text?.toString() ?: continue
+            if (!text.contains(appLabel, ignoreCase = false)) continue
+            // Walk to nearest clickable ancestor (the row container)
+            val row = findClickableAncestor(node) ?: if (node.isClickable) node else continue
+            Timber.tag(TAG).d("findAppRowInBatteryList matched '%s' in '%s'", appLabel, text)
+            return row
+        }
+        return null
+    }
+
     override fun findStartSettingsRow(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         for (label in config.startSettingsRowLabels) {
             val textNode = findTextNode(root, label) ?: continue
-            // Walk up to find the closest clickable ancestor (the row container)
-            val row = findClickableAncestor(textNode)
+            val row = findClickableAncestor(textNode) ?: if (textNode.isClickable) textNode else null
             if (row != null) {
                 Timber.tag(TAG).d("findStartSettingsRow matched label='%s'", label)
                 return row
@@ -144,41 +181,26 @@ class HonorMagicOsProfile @Inject constructor(
     }
 
     override fun findMasterToggle(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
-        findToggleByLabels(root, config.masterToggleLabels, "masterToggle")
+        findByResourceId(root, config.masterToggleResourceId, "masterToggle")
 
     override fun findAutoStartToggle(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
-        findToggleByLabels(root, config.autoStartLabels, "autoStartToggle")
+        findByResourceId(root, config.autoStartResourceId, "autoStartToggle")
 
     override fun findSecondaryStartToggle(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
-        findToggleByLabels(root, config.secondaryStartLabels, "secondaryStartToggle")
+        findByResourceId(root, config.secondaryStartResourceId, "secondaryStartToggle")
 
     override fun findBackgroundRunToggle(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
-        findToggleByLabels(root, config.backgroundRunLabels, "backgroundRunToggle")
+        findByResourceId(root, config.backgroundRunResourceId, "backgroundRunToggle")
 
-    override fun findOkButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        for (label in config.okButtonLabels) {
-            val nodes = root.findAccessibilityNodeInfosByText(label)
-            for (n in nodes) {
-                if (!n.isVisibleToUser) continue
-                // The button node itself might be clickable, or we look for a clickable ancestor
-                if (n.isClickable) return n
-                val ancestor = findClickableAncestor(n)
-                if (ancestor != null) return ancestor
-            }
-        }
-        return null
-    }
+    override fun findOkButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
+        findByResourceId(root, config.okButtonResourceId, "okButton")
 
     override fun isDialogVisible(root: AccessibilityNodeInfo): Boolean {
-        for (sig in config.dialogTitleSignatures) {
-            val nodes = root.findAccessibilityNodeInfosByText(sig)
-            if (nodes.any { it.isVisibleToUser }) return true
-        }
-        return false
+        val nodes = root.findAccessibilityNodeInfosByViewId(config.dialogTitleResourceId)
+        return nodes.any { it.isVisibleToUser }
     }
 
     override fun expectedScreenSignature(): Set<String> = config.screenSignaturePatterns
-    override fun dialogSignature(): Set<String> = config.dialogTitleSignatures.toSet()
     override fun disableSecondaryStart(): Boolean = config.disableSecondaryStart
     override fun disableBackgroundRun(): Boolean = config.disableBackgroundRun
     override fun masterToggleOffDelayMs(): Long = config.masterToggleOffDelayMs
@@ -190,44 +212,31 @@ class HonorMagicOsProfile @Inject constructor(
     // -------------------------------------------------------------------------
 
     /**
-     * Finds a toggle (Switch or CheckBox) whose row contains a label from [labels].
-     * Strategy:
-     *   1. Locate the text node matching the label (case-insensitive).
-     *   2. Walk up to the row container via [findClickableAncestor] or direct parent.
-     *   3. BFS within the row container for a Switch/CheckBox that is clickable.
+     * Finds the first visible node matching [resourceId] via findAccessibilityNodeInfosByViewId.
+     * Returns the node directly if clickable; otherwise falls back to its first clickable child
+     * (some Switch containers wrap the actual widget in an extra layer).
      */
-    private fun findToggleByLabels(
+    private fun findByResourceId(
         root: AccessibilityNodeInfo,
-        labels: List<String>,
+        resourceId: String,
         debugName: String
     ): AccessibilityNodeInfo? {
-        for (label in labels) {
-            val textNode = findTextNode(root, label) ?: continue
-            // Use the row container: prefer clickable ancestor, otherwise the parent
-            val rowContainer: AccessibilityNodeInfo =
-                findClickableAncestor(textNode) ?: textNode.parent ?: textNode
-            val toggle = bfs(rowContainer) { node ->
-                node.isClickable &&
-                    (node.className?.contains("Switch", ignoreCase = true) == true ||
-                        node.className?.contains("CheckBox", ignoreCase = true) == true)
-            }
-            if (toggle != null) {
-                Timber.tag(TAG).d("%s matched label='%s'", debugName, label)
-                return toggle
-            }
-        }
-        return null
+        val nodes = root.findAccessibilityNodeInfosByViewId(resourceId)
+        val node = nodes.firstOrNull { it.isVisibleToUser } ?: return null
+        Timber.tag(TAG).d("%s found via resourceId=%s enabled=%b checked=%b",
+            debugName, resourceId, node.isEnabled, node.isChecked)
+        return node
     }
 
     /**
-     * Finds the first visible text node whose text contains [label] (case-insensitive).
-     * Uses the Accessibility API text search first; verifies visibility.
+     * Finds the first visible text node whose text exactly matches [label] (case-sensitive),
+     * or falls back to a case-insensitive containment match.
      */
     private fun findTextNode(root: AccessibilityNodeInfo, label: String): AccessibilityNodeInfo? {
         val candidates = root.findAccessibilityNodeInfosByText(label)
         return candidates.firstOrNull { n ->
             n.isVisibleToUser &&
-                n.text?.toString()?.equals(label, ignoreCase = true) == true
+                n.text?.toString() == label
         } ?: candidates.firstOrNull { n ->
             n.isVisibleToUser &&
                 n.text?.toString()?.contains(label, ignoreCase = true) == true
@@ -235,7 +244,7 @@ class HonorMagicOsProfile @Inject constructor(
     }
 
     /**
-     * Walks ancestor chain upward looking for the closest node that is clickable.
+     * Walks the ancestor chain upward looking for the closest clickable node.
      * Stops after [MAX_ANCESTOR_DEPTH] levels to avoid runaway traversal.
      */
     private fun findClickableAncestor(
@@ -271,7 +280,7 @@ class HonorMagicOsProfile @Inject constructor(
     }
 
     /**
-     * Splits a fully-qualified "pkg/cls" or "pkg/.SubClass" component name string.
+     * Splits a fully-qualified "pkg/cls" or "pkg/.SubClass" component-name string.
      * Returns null on malformed input.
      */
     private fun splitFqn(fqn: String): Pair<String, String>? {
@@ -279,23 +288,9 @@ class HonorMagicOsProfile @Inject constructor(
         if (slash < 1 || slash == fqn.length - 1) return null
         val appPkg = fqn.substring(0, slash)
         val rawCls = fqn.substring(slash + 1)
-        // Handle shorthand ".SubClass" → "pkg.SubClass"
         val cls = if (rawCls.startsWith('.')) "$appPkg$rawCls" else rawCls
         return appPkg to cls
     }
-
-    private fun buildIntent(appPkg: String, cls: String, targetPkg: String): Intent =
-        Intent().apply {
-            component = ComponentName(appPkg, cls)
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_NO_HISTORY or
-                    Intent.FLAG_ACTIVITY_NO_ANIMATION
-            )
-            // Provide both extra keys — device firmware varies in which one it reads
-            putExtra("packageName", targetPkg)
-            putExtra("package", targetPkg)
-        }
 
     companion object {
         private const val TAG = "HonorProfile"
@@ -308,53 +303,75 @@ class HonorMagicOsProfile @Inject constructor(
 // ProfileConfig — JSON deserialization
 // -----------------------------------------------------------------------------
 
-/** Parsed representation of honor_magicos.json. */
+/** Parsed representation of honor_magicos.json (resource-ID–based MagicOS flow). */
 data class ProfileConfig(
-    // New battery-detail flow fields
-    val batteryDetailActivityCandidates: List<String>,
+    /** FQN of HwPowerManagerActivity — the battery list opened by the service. */
+    val batteryListActivityFqn: String,
+    /** FQN of DetailOfSoftConsumptionActivity — opened internally by tapping an app row. */
+    val batteryDetailActivityFqn: String,
+    /** Text labels used to find the "Starteinstellungen" row on the detail screen. */
     val startSettingsRowLabels: List<String>,
-    val masterToggleLabels: List<String>,
-    val autoStartLabels: List<String>,
-    val secondaryStartLabels: List<String>,
-    val backgroundRunLabels: List<String>,
-    val okButtonLabels: List<String>,
-    val screenTitleSignatures: List<String>,
-    val dialogTitleSignatures: List<String>,
+    /** Resource ID of the master auto-management toggle (switch_auto_management). */
+    val masterToggleResourceId: String,
+    /** Resource ID of the Auto-Start sub-toggle (switch_startup). */
+    val autoStartResourceId: String,
+    /** Resource ID of the Secondary-Start sub-toggle (switch_secondary_launch). */
+    val secondaryStartResourceId: String,
+    /** Resource ID of the background-run sub-toggle (switch_background_running). */
+    val backgroundRunResourceId: String,
+    /** Resource ID of the OK button (android:id/button1). */
+    val okButtonResourceId: String,
+    /** Resource ID of the dialog title (android:id/alertTitle) — used to detect dialog presence. */
+    val dialogTitleResourceId: String,
+    /** Expected dialog title text (used as a secondary dialog-presence check). */
+    val dialogTitleText: String,
+    /** Fragments of class names / package names that identify the relevant screens. */
     val screenSignaturePatterns: Set<String>,
+    /** Whether to disable the "Sekundärer Start" sub-toggle. */
     val disableSecondaryStart: Boolean,
+    /** Whether to disable the "Im Hintergrund ausführen" sub-toggle. */
     val disableBackgroundRun: Boolean,
+    /** Millis to wait after turning off the master toggle before touching sub-toggles. */
     val masterToggleOffDelayMs: Long,
-    // Common fields
+    /** Millis to wait between processing consecutive packages. */
     val cooldownMs: Long,
+    /** Maximum retry attempts per package before reporting failure. */
     val maxRetries: Int,
 ) {
     companion object {
         fun fromJson(json: JSONObject): ProfileConfig = ProfileConfig(
-            batteryDetailActivityCandidates =
-                json.getJSONArray("batteryDetailActivityCandidates").toStringList(),
+            batteryListActivityFqn =
+                json.getString("batteryListActivityFqn"),
+            batteryDetailActivityFqn =
+                json.getString("batteryDetailActivityFqn"),
             startSettingsRowLabels =
                 json.getJSONArray("startSettingsRowLabels").toStringList(),
-            masterToggleLabels =
-                json.getJSONArray("masterToggleLabels").toStringList(),
-            autoStartLabels =
-                json.getJSONArray("autoStartLabels").toStringList(),
-            secondaryStartLabels =
-                json.getJSONArray("secondaryStartLabels").toStringList(),
-            backgroundRunLabels =
-                json.getJSONArray("backgroundRunLabels").toStringList(),
-            okButtonLabels =
-                json.getJSONArray("okButtonLabels").toStringList(),
-            screenTitleSignatures =
-                json.getJSONArray("screenTitleSignatures").toStringList(),
-            dialogTitleSignatures =
-                json.getJSONArray("dialogTitleSignatures").toStringList(),
+            masterToggleResourceId =
+                json.getString("masterToggleResourceId"),
+            autoStartResourceId =
+                json.getString("autoStartResourceId"),
+            secondaryStartResourceId =
+                json.getString("secondaryStartResourceId"),
+            backgroundRunResourceId =
+                json.getString("backgroundRunResourceId"),
+            okButtonResourceId =
+                json.getString("okButtonResourceId"),
+            dialogTitleResourceId =
+                json.getString("dialogTitleResourceId"),
+            dialogTitleText =
+                json.getString("dialogTitleText"),
             screenSignaturePatterns =
                 json.getJSONArray("screenSignaturePatterns").toStringList().toSet(),
-            disableSecondaryStart = json.optBoolean("disableSecondaryStart", true),
-            disableBackgroundRun = json.optBoolean("disableBackgroundRun", true),
-            masterToggleOffDelayMs = json.optLong("masterToggleOffDelayMs", 400L),
-            cooldownMs = json.getLong("cooldownMs"),
-            maxRetries = json.getInt("maxRetries"),
+            disableSecondaryStart =
+                json.optBoolean("disableSecondaryStart", true),
+            disableBackgroundRun =
+                json.optBoolean("disableBackgroundRun", true),
+            masterToggleOffDelayMs =
+                json.optLong("masterToggleOffDelayMs", 400L),
+            cooldownMs =
+                json.getLong("cooldownMs"),
+            maxRetries =
+                json.getInt("maxRetries"),
         )
 
         private fun org.json.JSONArray.toStringList(): List<String> =

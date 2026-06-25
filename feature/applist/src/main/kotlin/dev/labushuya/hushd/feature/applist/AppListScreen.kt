@@ -94,8 +94,6 @@ private val AutostartEnabledContainer = Color(0xFFFFEDED)
 private val AutostartEnabledContent = Color(0xFFB91C1C)
 private val AutostartDisabledContainer = Color(0xFFDCFCE7)
 private val AutostartDisabledContent = Color(0xFF15803D)
-private val AutostartUnknownContainer = Color(0xFFE5E7EB)
-private val AutostartUnknownContent = Color(0xFF6B7280)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -382,9 +380,9 @@ private fun StatusFilterChipRow(
         }
         item {
             FilterChip(
-                selected = current == StatusFilter.ENABLED_ONLY,
-                onClick = { onSelect(StatusFilter.ENABLED_ONLY) },
-                label = { Text("Autostart AN") },
+                selected = current == StatusFilter.NOT_YET_DISABLED,
+                onClick = { onSelect(StatusFilter.NOT_YET_DISABLED) },
+                label = { Text("Noch nicht deaktiviert") },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = AutostartEnabledContainer,
                     selectedLabelColor = AutostartEnabledContent,
@@ -395,7 +393,7 @@ private fun StatusFilterChipRow(
             FilterChip(
                 selected = current == StatusFilter.DISABLED_ONLY,
                 onClick = { onSelect(StatusFilter.DISABLED_ONLY) },
-                label = { Text("Autostart AUS") },
+                label = { Text("Deaktiviert") },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = AutostartDisabledContainer,
                     selectedLabelColor = AutostartDisabledContent,
@@ -509,7 +507,7 @@ private fun AutostartStatusChip(status: AutostartStatus) {
     when (status) {
         AutostartStatus.ENABLED -> SuggestionChip(
             onClick = {},
-            label = { Text("AN", style = MaterialTheme.typography.labelSmall) },
+            label = { Text("Autostart AN", style = MaterialTheme.typography.labelSmall) },
             icon = {
                 Icon(
                     imageVector = Icons.Default.Warning,
@@ -526,7 +524,7 @@ private fun AutostartStatusChip(status: AutostartStatus) {
 
         AutostartStatus.DISABLED -> SuggestionChip(
             onClick = {},
-            label = { Text("AUS", style = MaterialTheme.typography.labelSmall) },
+            label = { Text("Autostart AUS", style = MaterialTheme.typography.labelSmall) },
             icon = {
                 Icon(
                     imageVector = Icons.Default.Check,
@@ -541,14 +539,9 @@ private fun AutostartStatusChip(status: AutostartStatus) {
             ),
         )
 
-        AutostartStatus.UNKNOWN -> SuggestionChip(
-            onClick = {},
-            label = { Text("?", style = MaterialTheme.typography.labelSmall) },
-            colors = SuggestionChipDefaults.suggestionChipColors(
-                containerColor = AutostartUnknownContainer,
-                labelColor = AutostartUnknownContent,
-            ),
-        )
+        // UNKNOWN: no chip — most apps start as unknown, showing a badge for all is noise.
+        // A chip only appears once the status has been confirmed by automation.
+        AutostartStatus.UNKNOWN -> Unit
     }
 }
 

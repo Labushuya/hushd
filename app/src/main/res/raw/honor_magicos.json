@@ -1,22 +1,23 @@
 {
   "profileId": "honor-magicos",
-  "batteryDetailActivityCandidates": [
-    "com.hihonor.systemmanager/.appmanage.ui.BatteryNormalAppDetailActivity",
-    "com.hihonor.systemmanager/.appmanage.ui.BatteryAppDetailActivity",
-    "com.hihonor.systemmanager/.appmanage.ui.AppPowerConsumptionActivity"
+  "batteryListActivityFqn": "com.hihonor.systemmanager/.power.ui.HwPowerManagerActivity",
+  "batteryDetailActivityFqn": "com.hihonor.systemmanager/.power.ui.DetailOfSoftConsumptionActivity",
+  "startSettingsRowLabels": ["Starteinstellungen", "Launch settings", "启动管理"],
+  "masterToggleResourceId": "com.hihonor.systemmanager:id/switch_auto_management",
+  "autoStartResourceId": "com.hihonor.systemmanager:id/switch_startup",
+  "secondaryStartResourceId": "com.hihonor.systemmanager:id/switch_secondary_launch",
+  "backgroundRunResourceId": "com.hihonor.systemmanager:id/switch_background_running",
+  "okButtonResourceId": "android:id/button1",
+  "dialogTitleResourceId": "android:id/alertTitle",
+  "dialogTitleText": "Starteinstellungen",
+  "screenSignaturePatterns": [
+    "HwPowerManagerActivity",
+    "DetailOfSoftConsumptionActivity",
+    "com.hihonor.systemmanager"
   ],
-  "startSettingsRowLabels": ["Starteinstellungen", "Launch settings", "Start settings", "启动管理"],
-  "masterToggleLabels": ["Automatisch verwalten", "Manage automatically", "自动管理"],
-  "autoStartLabels": ["Auto-Start", "Auto-start", "Autostart", "自启动"],
-  "secondaryStartLabels": ["Sekundärer Start", "Secondary launch", "被其他应用启动"],
-  "backgroundRunLabels": ["Im Hintergrund ausführen", "Run in background", "后台运行"],
-  "okButtonLabels": ["OK", "Ok", "确定"],
-  "screenTitleSignatures": ["Details zur Akkunutzung", "Battery usage details", "BatteryNormalAppDetailActivity", "BatteryAppDetailActivity"],
-  "dialogTitleSignatures": ["Starteinstellungen", "Launch settings"],
-  "screenSignaturePatterns": ["BatteryNormalAppDetailActivity", "BatteryAppDetailActivity", "AppPowerConsumptionActivity", "com.hihonor.systemmanager"],
   "disableSecondaryStart": true,
   "disableBackgroundRun": true,
+  "masterToggleOffDelayMs": 400,
   "cooldownMs": 500,
-  "maxRetries": 3,
-  "masterToggleOffDelayMs": 400
+  "maxRetries": 3
 }

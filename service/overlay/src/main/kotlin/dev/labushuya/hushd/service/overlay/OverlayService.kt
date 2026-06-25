@@ -72,10 +72,10 @@ class OverlayService :
     override val viewModelStore: ViewModelStore get() = store
 
     private lateinit var windowManager: WindowManager
-    private var overlayView: ComposeView? = null
+    private lateinit var composeView: ComposeView
 
     /** Guards against double-remove which throws an exception from WindowManager. */
-    private var viewAdded = false
+    private var overlayWindowAdded = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -106,7 +106,7 @@ class OverlayService :
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         serviceScope.cancel()
-        removeOverlayView()
+        removeOverlayWindow()
         store.clear()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         super.onDestroy()
@@ -127,14 +127,14 @@ class OverlayService :
                             state = state,
                             onCancel = {
                                 // cancel() resets state to Idle → observeEngineState()
-                                // picks up the Idle emission and calls stopSelf().
+                                // picks up the Idle emission and calls removeOverlayWindow().
                                 engine.cancel()
                             },
                             onDismiss = {
                                 // Called by OverlayContent after the auto-dismiss delay
-                                // (State.Done). The service stops itself which triggers
-                                // onDestroy → removeOverlayView().
-                                stopSelf()
+                                // (State.Done) or when the user taps "Schließen".
+                                // removeOverlayWindow() removes the view and stops the service.
+                                removeOverlayWindow()
                             },
                         )
                     }
@@ -154,33 +154,30 @@ class OverlayService :
             y = (resources.displayMetrics.density * 64).toInt()
         }
         windowManager.addView(cv, params)
-        overlayView = cv
-        viewAdded = true
+        composeView = cv
+        overlayWindowAdded = true
     }
 
     /**
-     * Removes the overlay window safely. Idempotent — safe to call multiple times.
+     * Removes the overlay window safely and stops the service.
+     * Idempotent — safe to call multiple times.
      */
-    private fun removeOverlayView() {
-        if (viewAdded) {
-            try {
-                windowManager.removeView(overlayView)
-            } catch (_: Exception) {
-                // View may already be detached (e.g. process kill race); ignore.
-            }
-            viewAdded = false
+    private fun removeOverlayWindow() {
+        if (overlayWindowAdded && ::composeView.isInitialized) {
+            try { windowManager.removeView(composeView) } catch (_: Exception) {}
+            overlayWindowAdded = false
         }
-        overlayView = null
+        stopSelf()
     }
 
     /**
      * Watches engine state on a background coroutine.
      *
      * - [BulkAutostopEngine.State.Idle]: Engine was cancelled → remove overlay immediately.
-     * - [BulkAutostopEngine.State.Done] / [BulkAutostopEngine.State.Error]: Automation finished
-     *   or errored. The OverlayContent handles the 2500 ms auto-dismiss for Done by calling
-     *   [onDismiss] → stopSelf(). For Error we add a safety 2500 ms fallback here so the
-     *   service always stops even if OverlayContent's close button is never tapped.
+     * - [BulkAutostopEngine.State.Done]: Automation finished. OverlayContent handles the
+     *   2500 ms auto-dismiss by calling [onDismiss] → removeOverlayWindow(). This coroutine
+     *   adds a matching 2500 ms safety fallback so the service always stops.
+     * - [BulkAutostopEngine.State.Error]: Show the error briefly, then remove after 2500 ms.
      *
      * We skip the initial Idle emission with a flag to avoid immediately self-stopping
      * before any run has started.
@@ -192,24 +189,23 @@ class OverlayService :
                 when (state) {
                     is BulkAutostopEngine.State.Idle -> {
                         if (seenNonIdle) {
-                            Timber.tag(TAG).i("Engine back to Idle — stopping OverlayService")
-                            stopSelf()
+                            Timber.tag(TAG).i("Engine back to Idle — removing overlay")
+                            removeOverlayWindow()
                         }
                     }
                     is BulkAutostopEngine.State.Done -> {
                         seenNonIdle = true
-                        // OverlayContent will call onDismiss → stopSelf() after 2500 ms.
-                        // This is a safety net: if the view is somehow gone, stop after 3 s.
-                        delay(3_000)
-                        Timber.tag(TAG).i("Done safety timeout — stopping OverlayService")
-                        stopSelf()
+                        // OverlayContent calls onDismiss → removeOverlayWindow() after 2500 ms.
+                        // This is a safety net in case the view is gone.
+                        delay(2_500)
+                        Timber.tag(TAG).i("Done safety timeout — removing overlay")
+                        removeOverlayWindow()
                     }
                     is BulkAutostopEngine.State.Error -> {
                         seenNonIdle = true
-                        // Show the error briefly, then stop automatically.
                         delay(2_500)
-                        Timber.tag(TAG).i("Error auto-dismiss — stopping OverlayService")
-                        stopSelf()
+                        Timber.tag(TAG).i("Error auto-dismiss — removing overlay")
+                        removeOverlayWindow()
                     }
                     else -> seenNonIdle = true
                 }
