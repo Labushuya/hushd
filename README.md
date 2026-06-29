@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/hushd-logo.png" alt="Hushd Logo" width="128" height="128"/>
+  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png" alt="Hushd Logo" width="128" height="128"/>
 </p>
 
 <h1 align="center">Hushd</h1>
