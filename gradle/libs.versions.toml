@@ -6,31 +6,31 @@ agp = "8.6.1"
 javaTarget = "21"
 
 # AndroidX core
-androidxCore = "1.13.1"
-androidxActivity = "1.9.3"
-androidxLifecycle = "2.8.7"
+androidxCore = "1.19.0"
+androidxActivity = "1.13.0"
+androidxLifecycle = "2.11.0"
 androidxStartup = "1.2.0"
-androidxAppcompat = "1.7.0"
-androidxSavedState = "1.2.1"
+androidxAppcompat = "1.7.1"
+androidxSavedState = "1.5.0"
 
 # Compose
-composeBom = "2024.10.01"
+composeBom = "2026.06.00"
 composeCompiler = "1.5.15"
-composeNavigation = "2.8.3"
+composeNavigation = "2.9.8"
 
 # Hilt
 hilt = "2.52"
-hiltNavigationCompose = "1.2.0"
-hiltWork = "1.2.0"
+hiltNavigationCompose = "1.3.0"
+hiltWork = "1.3.0"
 
 # Room
-room = "2.6.1"
+room = "2.8.4"
 
 # DataStore
-datastore = "1.1.1"
+datastore = "1.2.1"
 
 # WorkManager
-workManager = "2.9.1"
+workManager = "2.11.2"
 
 # Coroutines
 coroutines = "1.9.0"
@@ -48,10 +48,10 @@ kotlinxSerialization = "1.7.3"
 junit5 = "5.11.3"
 junit5Platform = "1.11.3"
 junit4 = "4.13.2"
-androidxTestExt = "1.2.1"
-androidxTestRunner = "1.6.2"
-androidxTestCore = "1.6.1"
-androidxEspresso = "3.6.1"
+androidxTestExt = "1.3.0"
+androidxTestRunner = "1.7.0"
+androidxTestCore = "1.7.0"
+androidxEspresso = "3.7.0"
 turbine = "1.2.0"
 mockk = "1.13.13"
 truth = "1.4.4"
