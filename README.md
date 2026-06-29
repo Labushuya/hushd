@@ -9,6 +9,8 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/status-archived-lightgrey" alt="Status: archived"/>
+  <img src="https://img.shields.io/badge/maintained-no-red" alt="Maintained: no"/>
   <a href="https://developer.android.com/about/versions/11">
     <img src="https://img.shields.io/badge/Android-API%2030%2B-3DDC84?logo=android&logoColor=white" alt="Android API 30+"/>
   </a>
@@ -16,6 +18,15 @@
     <img src="https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin 2.0"/>
   </a>
 </p>
+
+---
+
+> [!WARNING]
+> **Dieses Projekt wird nicht mehr gepflegt.**
+>
+> Das Konzept eines manuellen Autostart-Killers stammt aus einer Zeit, in der ältere Android-Versionen App-Hintergrundverhalten kaum regulierten. Moderne Android-Architektur (App Standby Buckets, Doze, Background-Restrictions ab API 31+) verwaltet das systemseitig — ein manuelles Tool dieser Art ergibt heute keinen Sinn mehr.
+>
+> Code bleibt als Referenz erhalten.
 
 ---
 
