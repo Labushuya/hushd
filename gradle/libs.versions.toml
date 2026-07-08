@@ -1,6 +1,6 @@
 [versions]
 # Core toolchain
-kotlin = "2.0.21"
+kotlin = "2.4.0"
 ksp = "2.0.21-1.0.28"
 agp = "8.6.1"
 javaTarget = "21"
@@ -33,7 +33,7 @@ datastore = "1.1.1"
 workManager = "2.9.1"
 
 # Coroutines
-coroutines = "1.9.0"
+coroutines = "1.11.0"
 
 # Image loading
 coil = "2.7.0"
@@ -42,7 +42,7 @@ coil = "2.7.0"
 timber = "5.0.1"
 
 # JSON (for SBOM / audit export — local only)
-kotlinxSerialization = "1.7.3"
+kotlinxSerialization = "1.11.0"
 
 # Testing
 junit5 = "5.11.3"
