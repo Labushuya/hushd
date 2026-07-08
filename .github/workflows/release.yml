@@ -232,7 +232,7 @@ jobs:
 
       - name: Attest SBOM as predicate of APK
         if: steps.stage_sbom.outputs.sbom_present == 'true'
-        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v1.4.1 — renovate updates these
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v1.4.1 — renovate updates these
         continue-on-error: true
         with:
           subject-path: ${{ env.RELEASE_APK }}
