@@ -64,7 +64,7 @@ spotless = "6.25.0"
 androidLint = "31.6.1"
 
 # Supply chain
-cyclonedx = "1.10.0"
+cyclonedx = "3.2.4"
 
 [libraries]
 # AndroidX core
