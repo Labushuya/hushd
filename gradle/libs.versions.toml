@@ -53,7 +53,7 @@ androidxTestRunner = "1.6.2"
 androidxTestCore = "1.6.1"
 androidxEspresso = "3.6.1"
 turbine = "1.2.0"
-mockk = "1.13.13"
+mockk = "1.14.11"
 truth = "1.4.4"
 robolectric = "4.13"
 
